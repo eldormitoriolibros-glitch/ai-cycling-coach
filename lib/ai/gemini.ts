@@ -23,6 +23,7 @@ type GeminiResponse = {
     finishReason?: string
   }>
   promptFeedback?: { blockReason?: string }
+  error?: { message?: string; status?: string }
 }
 
 /**
@@ -57,9 +58,20 @@ export async function generateReply(
   if (response.status === 429) {
     throw new Error('Llegaste al límite gratuito de Gemini. Probá de nuevo más tarde.')
   }
+
   if (!response.ok) {
-    // The body can echo the API key back in error details, so it is not forwarded.
-    throw new Error(`Gemini respondió ${response.status}.`)
+    // Gemini carries the key in the query string, never in the error body, so
+    // the message is safe to surface — and it names retired models explicitly.
+    const detail = (await response.json().catch(() => null)) as GeminiResponse | null
+    const reason = detail?.error?.message ?? `HTTP ${response.status}`
+
+    if (response.status === 404) {
+      throw new Error(
+        `El modelo "${env.GEMINI_MODEL}" no existe o ya no está disponible. Cambiá GEMINI_MODEL (por ejemplo a gemini-2.5-flash). Detalle: ${reason}`
+      )
+    }
+
+    throw new Error(`Gemini rechazó la consulta: ${reason}`)
   }
 
   const body = (await response.json()) as GeminiResponse

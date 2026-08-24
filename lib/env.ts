@@ -40,7 +40,7 @@ export function serverEnv(): ServerEnv {
  */
 const geminiSchema = z.object({
   GEMINI_API_KEY: z.string().min(1),
-  GEMINI_MODEL: z.string().min(1).default('gemini-2.0-flash'),
+  GEMINI_MODEL: z.string().min(1).default('gemini-2.5-flash'),
 })
 
 const telegramSchema = z.object({
