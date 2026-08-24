@@ -114,7 +114,8 @@ async function explain(draft: PlanDraft): Promise<string | null> {
   try {
     return await generateReply(RATIONALE_RULES, [{ role: 'user', text: summary }], {
       temperature: 0.4,
-      maxOutputTokens: 250,
+      // Must cover the model's thinking tokens as well as the 90-word answer.
+      maxOutputTokens: 1500,
     })
   } catch {
     // The plan is valid without a narrative; never block on the AI layer.
