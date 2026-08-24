@@ -1,3 +1,4 @@
+import { GarminImportCard } from '@/components/GarminImportCard'
 import { StravaCard } from '@/components/StravaCard'
 import { TelegramCard } from '@/components/TelegramCard'
 import { telegramEnv } from '@/lib/env'
@@ -61,6 +62,8 @@ export default async function SettingsPage({
         linked={Boolean(profile?.telegram_chat_id)}
         botUsername={telegram?.TELEGRAM_BOT_USERNAME ?? null}
       />
+
+      <GarminImportCard />
     </div>
   )
 }
