@@ -1,0 +1,26 @@
+import type { Metadata } from 'next'
+import { Inter } from 'next/font/google'
+import './globals.css'
+import { Nav } from '@/components/Nav'
+
+const inter = Inter({ subsets: ['latin'], variable: '--font-inter' })
+
+export const metadata: Metadata = {
+  title: 'AI Cycling Coach',
+  description: 'Personal AI cycling coach',
+}
+
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode
+}) {
+  return (
+    <html lang="es">
+      <body className={`${inter.variable} bg-slate-50 font-sans antialiased`}>
+        <Nav />
+        <main className="mx-auto max-w-4xl p-6">{children}</main>
+      </body>
+    </html>
+  )
+}
