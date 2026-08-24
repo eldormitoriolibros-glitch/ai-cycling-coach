@@ -4,18 +4,34 @@ import { z } from 'zod'
  * Server-only environment. Importing this from a client component will throw at
  * build time because the secrets are absent from the browser bundle.
  */
-const serverSchema = z.object({
-  NEXT_PUBLIC_SUPABASE_URL: z.string().url(),
-  NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(1),
-  SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
-  NEXT_PUBLIC_SITE_URL: z.string().url().transform((v) => v.replace(/\/$/, '')),
-  TOKEN_ENCRYPTION_KEY: z
-    .string()
-    .refine((v) => Buffer.from(v, 'base64').length === 32, 'must be a base64-encoded 32-byte key'),
-  STRAVA_CLIENT_ID: z.string().min(1),
-  STRAVA_CLIENT_SECRET: z.string().min(1),
-  STRAVA_WEBHOOK_VERIFY_TOKEN: z.string().min(1),
-})
+const serverSchema = z
+  .object({
+    NEXT_PUBLIC_SUPABASE_URL: z.string().url(),
+    NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(1),
+    SUPABASE_SERVICE_ROLE_KEY: z
+      .string()
+      .min(1)
+      .refine(
+        (v) => !v.startsWith('sb_publishable_'),
+        'looks like a publishable key; this must be the secret key (sb_secret_...) or the legacy service_role JWT'
+      ),
+    NEXT_PUBLIC_SITE_URL: z.string().url().transform((v) => v.replace(/\/$/, '')),
+    TOKEN_ENCRYPTION_KEY: z
+      .string()
+      .refine((v) => Buffer.from(v, 'base64').length === 32, 'must be a base64-encoded 32-byte key'),
+    STRAVA_CLIENT_ID: z.string().min(1),
+    STRAVA_CLIENT_SECRET: z.string().min(1),
+    STRAVA_WEBHOOK_VERIFY_TOKEN: z.string().min(1),
+  })
+  .superRefine((env, ctx) => {
+    if (env.SUPABASE_SERVICE_ROLE_KEY === env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['SUPABASE_SERVICE_ROLE_KEY'],
+        message: 'is identical to the anon key; server-side writes would be blocked by RLS',
+      })
+    }
+  })
 
 export type ServerEnv = z.infer<typeof serverSchema>
 
