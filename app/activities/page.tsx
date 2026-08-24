@@ -1,44 +1,82 @@
 import Link from 'next/link'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { Alert, Card } from '@/components/ui'
 import { createClient } from '@/lib/supabase/server'
 import { formatDistance, formatDuration } from '@/lib/utils'
 
 export const dynamic = 'force-dynamic'
 
-export default async function ActivitiesPage() {
+const PAGE_SIZE = 50
+
+export default async function ActivitiesPage({
+  searchParams,
+}: {
+  searchParams: { page?: string }
+}) {
   const supabase = createClient()
   const {
     data: { user },
   } = await supabase.auth.getUser()
 
-  const [{ data: activities, error }, { data: metrics }] = await Promise.all([
+  const requestedPage = Number.parseInt(searchParams.page ?? '1', 10)
+  const page = Number.isFinite(requestedPage) && requestedPage > 0 ? requestedPage : 1
+  const from = (page - 1) * PAGE_SIZE
+
+  const countOf = (column: string, isNull: boolean) =>
+    isNull
+      ? supabase
+          .from('activities')
+          .select('id', { count: 'exact', head: true })
+          .eq('user_id', user!.id)
+          .is(column, null)
+      : supabase
+          .from('activities')
+          .select('id', { count: 'exact', head: true })
+          .eq('user_id', user!.id)
+          .not(column, 'is', null)
+
+  const [
+    { data: activities, count, error },
+    { count: missingLoad },
+    { count: withPower },
+    { count: withHr },
+    { count: withCurve },
+    { data: metrics },
+  ] = await Promise.all([
     supabase
       .from('activities')
-      .select('*')
+      .select('*', { count: 'exact' })
       .eq('user_id', user!.id)
       .order('start_time', { ascending: false })
-      .limit(50),
+      .range(from, from + PAGE_SIZE - 1),
+    countOf('training_load', true),
+    countOf('avg_power', false),
+    countOf('avg_hr', false),
+    countOf('power_curve', false),
     supabase.from('athlete_metrics').select('ftp, max_hr').eq('user_id', user!.id).maybeSingle(),
   ])
 
-  const missingLoad = (activities ?? []).filter((a) => a.training_load === null)
-  const hasPowerData = (activities ?? []).some((a) => a.avg_power !== null)
-  const hasHrData = (activities ?? []).some((a) => a.avg_hr !== null)
-  const hasPowerCurve = (activities ?? []).some((a) => a.power_curve !== null)
+  const total = count ?? 0
+  const lastPage = Math.max(1, Math.ceil(total / PAGE_SIZE))
 
   return (
     <div className="space-y-4">
-      <h1 className="text-2xl font-bold">Actividades</h1>
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h1 className="text-2xl font-bold">Actividades</h1>
+        <p className="text-sm text-slate-500">
+          {total} en total · página {page} de {lastPage}
+        </p>
+      </div>
 
       {error && <Card>No se pudieron cargar las actividades: {error.message}</Card>}
 
-      {missingLoad.length > 0 && (
+      {(missingLoad ?? 0) > 0 && (
         <Alert variant="info">
-          {missingLoad.length} actividad(es) sin carga calculada.{' '}
-          {hasPowerData && !metrics?.ftp ? (
+          {missingLoad} actividad(es) sin carga calculada.{' '}
+          {(withPower ?? 0) > 0 && !metrics?.ftp ? (
             <>
               Tenés potencia pero falta tu FTP.{' '}
-              {hasPowerCurve ? (
+              {(withCurve ?? 0) > 0 ? (
                 <>
                   <Link href="/power" className="font-medium underline">
                     Estimalo desde tu historial
@@ -55,17 +93,15 @@ export default async function ActivitiesPage() {
                 </>
               )}
             </>
-          ) : !hasPowerData && !hasHrData ? (
-            <>Estas salidas no tienen ni potencia ni pulso, así que no hay nada que calcular.</>
-          ) : !hasHrData && !metrics?.max_hr ? (
+          ) : (withHr ?? 0) === 0 && !metrics?.max_hr ? (
             <>Cargá tu FC máxima en el perfil para estimar la carga por pulso.</>
           ) : (
-            <>Sincronizá de nuevo para procesar los datos de potencia que faltan.</>
+            <>Son salidas sin potencia ni pulso, así que no hay nada que calcular.</>
           )}
         </Alert>
       )}
 
-      {!error && (!activities || activities.length === 0) && (
+      {!error && total === 0 && (
         <Card>
           <p className="text-sm text-slate-600">
             Todavía no hay actividades.{' '}
@@ -81,14 +117,25 @@ export default async function ActivitiesPage() {
         {activities?.map((activity) => (
           <Card key={activity.id} className="p-4">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <h2 className="font-medium">{activity.title ?? 'Sin título'}</h2>
+              <h2 className="font-medium">
+                {activity.title ?? 'Sin título'}
+                {activity.source === 'manual' && (
+                  <span className="ml-2 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-500">
+                    CSV
+                  </span>
+                )}
+              </h2>
               <time className="text-xs text-slate-500" dateTime={activity.start_time}>
                 {new Date(activity.start_time).toLocaleString('es-AR')}
               </time>
             </div>
-            <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-sm sm:grid-cols-4">
+            <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-sm sm:grid-cols-5">
               <Stat label="Distancia" value={formatDistance(activity.distance_meters)} />
-              <Stat label="Tiempo" value={formatDuration(activity.moving_seconds ?? activity.duration_seconds)} />
+              <Stat
+                label="Tiempo"
+                value={formatDuration(activity.moving_seconds ?? activity.duration_seconds)}
+              />
+              <Stat label="Pulso" value={activity.avg_hr ? `${activity.avg_hr} ppm` : '—'} />
               <Stat
                 label={activity.has_power_meter ? 'Potencia' : 'Potencia (est.)'}
                 value={
@@ -99,12 +146,55 @@ export default async function ActivitiesPage() {
                       : '—'
                 }
               />
-              <Stat label="Carga" value={activity.training_load ? String(activity.training_load) : '—'} />
+              <Stat
+                label="Carga"
+                value={activity.training_load ? String(activity.training_load) : '—'}
+              />
             </dl>
           </Card>
         ))}
       </div>
+
+      {lastPage > 1 && (
+        <nav className="flex items-center justify-between pt-2">
+          <PageLink page={page - 1} disabled={page <= 1}>
+            <ChevronLeft aria-hidden className="h-4 w-4" />
+            Más recientes
+          </PageLink>
+          <PageLink page={page + 1} disabled={page >= lastPage}>
+            Más antiguas
+            <ChevronRight aria-hidden className="h-4 w-4" />
+          </PageLink>
+        </nav>
+      )}
     </div>
+  )
+}
+
+function PageLink({
+  page,
+  disabled,
+  children,
+}: {
+  page: number
+  disabled: boolean
+  children: React.ReactNode
+}) {
+  if (disabled) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-300">
+        {children}
+      </span>
+    )
+  }
+
+  return (
+    <Link
+      href={`/activities?page=${page}`}
+      className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium hover:bg-slate-50"
+    >
+      {children}
+    </Link>
   )
 }
 
