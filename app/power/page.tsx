@@ -1,5 +1,6 @@
+import Link from 'next/link'
 import { ApplyFtpButton } from '@/components/ApplyFtpButton'
-import { Card } from '@/components/ui'
+import { Alert, Card } from '@/components/ui'
 import { loadPowerSummary, type CurvePoint } from '@/lib/training/ftp'
 import { createClient } from '@/lib/supabase/server'
 
@@ -26,9 +27,14 @@ export default async function PowerPage() {
     data: { user },
   } = await supabase.auth.getUser()
 
-  const [summary, { data: metrics }] = await Promise.all([
+  const [summary, { data: metrics }, { count: estimatedOnly }] = await Promise.all([
     loadPowerSummary(user!.id),
     supabase.from('athlete_metrics').select('ftp, ftp_source, ftp_updated_at').eq('user_id', user!.id).maybeSingle(),
+    supabase
+      .from('activities')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', user!.id)
+      .eq('streams_status', 'no_power'),
   ])
 
   return (
@@ -40,11 +46,36 @@ export default async function PowerPage() {
       </p>
 
       {summary.curve.length === 0 ? (
-        <Card>
-          <p className="text-sm text-slate-600">
-            Todavía no hay datos de potencia. Sincronizá Strava; las salidas con potenciómetro se
-            procesan solas después de cada sincronización.
-          </p>
+        <Card className="space-y-3">
+          {estimatedOnly ? (
+            <>
+              <p className="text-sm text-slate-700">
+                No se puede construir la curva de potencia con tus datos actuales.
+              </p>
+              <p className="text-sm text-slate-600">
+                Tus {estimatedOnly} salidas tienen potencia <strong>estimada</strong> por Strava a
+                partir de velocidad, pendiente y peso ({'device_watts: false'}). Para ese tipo de
+                potencia Strava publica el promedio de la actividad, pero no el detalle segundo a
+                segundo, y sin ese detalle no hay mejores esfuerzos de 20 minutos que medir.
+              </p>
+              <p className="text-sm text-slate-600">
+                Mientras tanto: cargá tu FTP a mano en{' '}
+                <Link href="/profile" className="font-medium underline">
+                  Perfil
+                </Link>
+                . Aunque sea aproximado, destraba el cálculo de carga de todas tus salidas.
+              </p>
+              <Alert variant="info">
+                Con un potenciómetro real, o con un pulsómetro emparejado al ciclocomputadora,
+                Strava sí entrega el detalle y esta página se llena sola.
+              </Alert>
+            </>
+          ) : (
+            <p className="text-sm text-slate-600">
+              Todavía no hay datos de potencia. Sincronizá Strava; las salidas con potenciómetro se
+              procesan solas después de cada sincronización.
+            </p>
+          )}
         </Card>
       ) : (
         <>

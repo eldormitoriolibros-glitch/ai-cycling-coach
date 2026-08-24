@@ -24,6 +24,7 @@ export default async function ActivitiesPage() {
   const missingLoad = (activities ?? []).filter((a) => a.training_load === null)
   const hasPowerData = (activities ?? []).some((a) => a.avg_power !== null)
   const hasHrData = (activities ?? []).some((a) => a.avg_hr !== null)
+  const hasPowerCurve = (activities ?? []).some((a) => a.power_curve !== null)
 
   return (
     <div className="space-y-4">
@@ -36,11 +37,23 @@ export default async function ActivitiesPage() {
           {missingLoad.length} actividad(es) sin carga calculada.{' '}
           {hasPowerData && !metrics?.ftp ? (
             <>
-              Tenés potencia pero falta tu FTP:{' '}
-              <Link href="/power" className="font-medium underline">
-                estimalo desde tu historial
-              </Link>{' '}
-              o cargalo a mano en el perfil.
+              Tenés potencia pero falta tu FTP.{' '}
+              {hasPowerCurve ? (
+                <>
+                  <Link href="/power" className="font-medium underline">
+                    Estimalo desde tu historial
+                  </Link>{' '}
+                  o cargalo a mano en el perfil.
+                </>
+              ) : (
+                <>
+                  Cargalo a mano en{' '}
+                  <Link href="/profile" className="font-medium underline">
+                    Perfil
+                  </Link>
+                  ; tu potencia es estimada por Strava y no alcanza para deducirlo.
+                </>
+              )}
             </>
           ) : !hasPowerData && !hasHrData ? (
             <>Estas salidas no tienen ni potencia ni pulso, así que no hay nada que calcular.</>
