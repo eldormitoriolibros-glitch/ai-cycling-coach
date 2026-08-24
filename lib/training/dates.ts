@@ -26,3 +26,48 @@ export function eachDay(from: string, to: string): string[] {
   }
   return days
 }
+
+function offsetMs(instant: Date, timeZone: string): number {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      hour12: false,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    })
+      .formatToParts(instant)
+      .filter((p) => p.type !== 'literal')
+      .map((p) => [p.type, p.value])
+  )
+
+  const asUtc = Date.UTC(
+    Number(parts.year),
+    Number(parts.month) - 1,
+    Number(parts.day),
+    Number(parts.hour) % 24,
+    Number(parts.minute),
+    Number(parts.second)
+  )
+
+  return asUtc - instant.getTime()
+}
+
+/**
+ * Interprets a naive local timestamp (`2026-08-23 08:26:35`) as wall time in
+ * `timeZone` and returns the real instant. Needed for exports that omit the
+ * UTC offset, such as Garmin's activity CSV.
+ */
+export function zonedTimeToUtc(localTimestamp: string, timeZone: string): Date {
+  const asIfUtc = new Date(`${localTimestamp.trim().replace(' ', 'T')}Z`)
+  if (Number.isNaN(asIfUtc.getTime())) return asIfUtc
+
+  try {
+    return new Date(asIfUtc.getTime() - offsetMs(asIfUtc, timeZone))
+  } catch {
+    return asIfUtc
+  }
+}

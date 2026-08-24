@@ -8,9 +8,13 @@
 export type GarminRow = {
   startLocal: string
   activityType: string | null
+  title: string | null
   distanceMeters: number | null
   movingSeconds: number | null
   elapsedSeconds: number | null
+  elevationGain: number | null
+  avgSpeed: number | null
+  maxSpeed: number | null
   avgHr: number | null
   maxHr: number | null
   avgCadence: number | null
@@ -21,10 +25,14 @@ export type GarminRow = {
 const HEADERS = {
   date: ['fecha', 'date'],
   type: ['tipo de actividad', 'activity type'],
+  title: ['título', 'titulo', 'title'],
   distance: ['distancia', 'distance'],
   moving: ['tiempo en movimiento', 'moving time'],
   elapsed: ['tiempo transcurrido', 'elapsed time'],
   timer: ['tiempo', 'time'],
+  elevation: ['ascenso total', 'total ascent', 'elev gain'],
+  avgSpeed: ['velocidad media', 'avg speed', 'average speed'],
+  maxSpeed: ['velocidad máxima', 'velocidad maxima', 'max speed'],
   avgHr: ['frecuencia cardiaca media', 'frecuencia cardíaca media', 'avg hr', 'average heart rate'],
   maxHr: ['fc máxima', 'fc maxima', 'max hr', 'max heart rate'],
   avgCadence: ['cadencia media de pedaleo', 'avg bike cadence', 'average cadence'],
@@ -117,10 +125,14 @@ export function parseGarminCsv(text: string): GarminRow[] {
   const idx = {
     date: columnIndex(header, HEADERS.date),
     type: columnIndex(header, HEADERS.type),
+    title: columnIndex(header, HEADERS.title),
     distance: columnIndex(header, HEADERS.distance),
     moving: columnIndex(header, HEADERS.moving),
     elapsed: columnIndex(header, HEADERS.elapsed),
     timer: columnIndex(header, HEADERS.timer),
+    elevation: columnIndex(header, HEADERS.elevation),
+    avgSpeed: columnIndex(header, HEADERS.avgSpeed),
+    maxSpeed: columnIndex(header, HEADERS.maxSpeed),
     avgHr: columnIndex(header, HEADERS.avgHr),
     maxHr: columnIndex(header, HEADERS.maxHr),
     avgCadence: columnIndex(header, HEADERS.avgCadence),
@@ -142,10 +154,14 @@ export function parseGarminCsv(text: string): GarminRow[] {
       {
         startLocal,
         activityType: at(row, idx.type)?.trim() ?? null,
+        title: at(row, idx.title)?.trim() || null,
         // Unit is decided by the caller: Garmin exports km or miles by account setting.
         distanceMeters: distanceValue,
         movingSeconds: toSeconds(at(row, idx.moving)) ?? toSeconds(at(row, idx.timer)),
         elapsedSeconds: toSeconds(at(row, idx.elapsed)),
+        elevationGain: toNumber(at(row, idx.elevation)),
+        avgSpeed: toNumber(at(row, idx.avgSpeed)),
+        maxSpeed: toNumber(at(row, idx.maxSpeed)),
         avgHr: toNumber(at(row, idx.avgHr)),
         maxHr: toNumber(at(row, idx.maxHr)),
         avgCadence: toNumber(at(row, idx.avgCadence)),

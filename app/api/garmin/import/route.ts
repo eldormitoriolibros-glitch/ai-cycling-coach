@@ -18,10 +18,12 @@ export async function POST(request: Request) {
   }
 
   let file: File | null = null
+  let createMissing = false
   try {
     const form = await request.formData()
     const entry = form.get('file')
     if (entry instanceof File) file = entry
+    createMissing = form.get('createMissing') === 'true'
   } catch {
     return NextResponse.json({ error: 'No se pudo leer el archivo.' }, { status: 400 })
   }
@@ -34,7 +36,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const result = await importGarminCsv(user.id, await file.text())
+    const result = await importGarminCsv(user.id, await file.text(), { createMissing })
 
     if (result.parsed === 0) {
       return NextResponse.json(

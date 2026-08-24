@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Alert, Button, Card, Field, Input, Select, Spinner } from '@/components/ui'
 import { parseFloatOrNull, parseIntOrNull } from '@/lib/utils'
@@ -13,6 +13,7 @@ type FormState = {
   weight: string
   height: string
   experienceLevel: string
+  timezone: string
   ftp: string
   maxHr: string
   restingHr: string
@@ -25,10 +26,19 @@ const EMPTY: FormState = {
   weight: '',
   height: '',
   experienceLevel: '',
+  timezone: '',
   ftp: '',
   maxHr: '',
   restingHr: '',
 }
+
+const FALLBACK_ZONES = [
+  'UTC',
+  'Europe/Madrid',
+  'America/Argentina/Buenos_Aires',
+  'America/New_York',
+  'America/Sao_Paulo',
+]
 
 export function ProfileForm() {
   const supabase = createClient()
@@ -42,6 +52,14 @@ export function ProfileForm() {
   const set = useCallback(<K extends keyof FormState>(key: K, value: FormState[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }))
     setSuccess(null)
+  }, [])
+
+  const timeZones = useMemo(() => {
+    const supported =
+      typeof Intl.supportedValuesOf === 'function' ? Intl.supportedValuesOf('timeZone') : []
+    const detected = Intl.DateTimeFormat().resolvedOptions().timeZone
+    const list = supported.length > 0 ? supported : FALLBACK_ZONES
+    return Array.from(new Set([detected, ...list].filter(Boolean)))
   }, [])
 
   useEffect(() => {
@@ -75,6 +93,10 @@ export function ProfileForm() {
           weight: profile?.weight_kg?.toString() ?? '',
           height: profile?.height_cm?.toString() ?? '',
           experienceLevel: profile?.experience_level ?? '',
+          timezone:
+            profile?.timezone && profile.timezone !== 'UTC'
+              ? profile.timezone
+              : Intl.DateTimeFormat().resolvedOptions().timeZone,
           ftp: metrics?.ftp?.toString() ?? '',
           maxHr: metrics?.max_hr?.toString() ?? '',
           restingHr: metrics?.resting_hr?.toString() ?? '',
@@ -109,6 +131,7 @@ export function ProfileForm() {
           weight_kg: parseFloatOrNull(form.weight),
           height_cm: parseFloatOrNull(form.height),
           experience_level: (form.experienceLevel || null) as ExperienceLevel | null,
+          timezone: form.timezone || 'UTC',
         })
         .eq('id', userId)
       if (profileError) throw profileError
@@ -204,6 +227,16 @@ export function ProfileForm() {
               <option value="beginner">Principiante</option>
               <option value="intermediate">Intermedio</option>
               <option value="advanced">Avanzado</option>
+            </Select>
+          </Field>
+
+          <Field label="Zona horaria" className="sm:col-span-2" hint="Define en qué día cae cada salida y a qué hora te escribe el entrenador.">
+            <Select value={form.timezone} onChange={(e) => set('timezone', e.target.value)}>
+              {timeZones.map((zone) => (
+                <option key={zone} value={zone}>
+                  {zone}
+                </option>
+              ))}
             </Select>
           </Field>
 

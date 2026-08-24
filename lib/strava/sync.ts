@@ -1,4 +1,5 @@
 import { createAdminClient } from '@/lib/supabase/admin'
+import { removeDuplicateManualActivities } from '@/lib/training/dedupe'
 import { recomputeActivityLoads, recomputeTrainingLoad } from '@/lib/training/rollup'
 import { getActivity, listActivities, StravaError } from './client'
 import { backfillPowerCurves, STREAM_LIMIT_BACKGROUND, STREAM_LIMIT_MANUAL } from './streams'
@@ -99,6 +100,9 @@ export async function syncActivities(
     )
     streamsProcessed = backfill.processed
     streamsRemaining = backfill.remaining
+
+    // A ride imported from CSV may now exist on Strava as well.
+    await removeDuplicateManualActivities(userId)
 
     // Normalized Power only exists after the backfill, so redo the estimates.
     await recomputeActivityLoads(userId)

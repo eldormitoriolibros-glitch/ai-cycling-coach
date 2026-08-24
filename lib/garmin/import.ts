@@ -1,4 +1,7 @@
 import { createAdminClient } from '@/lib/supabase/admin'
+import { zonedTimeToUtc } from '@/lib/training/dates'
+import { removeDuplicateManualActivities } from '@/lib/training/dedupe'
+import { estimateTrainingLoad } from '@/lib/training/load'
 import { recomputeActivityLoads, recomputeTrainingLoad } from '@/lib/training/rollup'
 import { parseGarminCsv, type GarminRow } from './csv'
 
@@ -6,6 +9,7 @@ import 'server-only'
 
 const METRES_PER_KM = 1000
 const METRES_PER_MILE = 1609.344
+const METRES_PER_FOOT = 0.3048
 
 /** Matching tolerances. Distance and duration together identify a ride uniquely. */
 const DISTANCE_TOLERANCE_RATIO = 0.015
@@ -28,9 +32,34 @@ export type ImportResult = {
   withHeartRate: number
   matched: number
   updated: number
+  created: number
+  removedDuplicates: number
   unmatched: number
   unit: 'km' | 'mi'
   activitiesRecalculated: number
+}
+
+export type ImportOptions = { createMissing?: boolean }
+
+/** Garmin localises the activity type; map the common cycling ones to Strava's vocabulary. */
+function toSportType(activityType: string | null): string {
+  const value = (activityType ?? '').toLowerCase()
+  if (value.includes('montaña') || value.includes('mountain') || value.includes('mtb')) {
+    return 'MountainBikeRide'
+  }
+  if (value.includes('gravel')) return 'GravelRide'
+  if (value.includes('interior') || value.includes('indoor') || value.includes('virtual')) {
+    return 'VirtualRide'
+  }
+  if (value.includes('cicl') || value.includes('bike') || value.includes('cycl') || value.includes('ride')) {
+    return 'Ride'
+  }
+  return 'Workout'
+}
+
+/** Stable per-start-time id so re-importing the same file updates instead of duplicating. */
+function externalId(row: GarminRow): string {
+  return `garmin-csv-${row.startLocal.replace(/\D/g, '')}`
 }
 
 function durationOf(activity: Candidate): number | null {
@@ -78,16 +107,24 @@ function pair(rows: GarminRow[], activities: Candidate[], metresPerUnit: number)
   return pairs
 }
 
-export async function importGarminCsv(userId: string, csvText: string): Promise<ImportResult> {
+export async function importGarminCsv(
+  userId: string,
+  csvText: string,
+  options: ImportOptions = {}
+): Promise<ImportResult> {
   const rows = parseGarminCsv(csvText)
   const usable = rows.filter((r) => r.avgHr !== null || r.maxHr !== null)
 
   const supabase = createAdminClient()
 
-  const { data: activities, error } = await supabase
-    .from('activities')
-    .select('id, start_time, distance_meters, moving_seconds, duration_seconds, avg_hr, max_hr, avg_cadence')
-    .eq('user_id', userId)
+  const [{ data: activities, error }, { data: profile }, { data: metrics }] = await Promise.all([
+    supabase
+      .from('activities')
+      .select('id, start_time, distance_meters, moving_seconds, duration_seconds, avg_hr, max_hr, avg_cadence')
+      .eq('user_id', userId),
+    supabase.from('users').select('timezone').eq('id', userId).maybeSingle(),
+    supabase.from('athlete_metrics').select('ftp, max_hr, resting_hr').eq('user_id', userId).maybeSingle(),
+  ])
 
   if (error) throw new Error(error.message)
 
@@ -116,14 +153,86 @@ export async function importGarminCsv(userId: string, csvText: string): Promise<
     if (!updateError) updated++
   }
 
-  const activitiesRecalculated = updated > 0 ? await recomputeActivityLoads(userId) : 0
-  if (updated > 0) await recomputeTrainingLoad(userId)
+  let created = 0
+
+  if (options.createMissing) {
+    const timeZone = profile?.timezone || 'UTC'
+    const metresPerUnit = useMetric ? METRES_PER_KM : METRES_PER_MILE
+    const paired = new Set(pairs.map((p) => p.row))
+
+    const inserts = rows
+      .filter((row) => !paired.has(row))
+      .flatMap((row) => {
+        const startedAt = zonedTimeToUtc(row.startLocal, timeZone)
+        if (Number.isNaN(startedAt.getTime())) return []
+
+        const movingSeconds = row.movingSeconds
+        const durationSeconds = row.elapsedSeconds ?? movingSeconds
+        if (!movingSeconds && !durationSeconds) return []
+
+        const { trainingLoad, intensityFactor } = estimateTrainingLoad({
+          durationSeconds: movingSeconds ?? durationSeconds,
+          normalizedPower: null,
+          averagePower: null,
+          averageHr: row.avgHr,
+          ftp: metrics?.ftp ?? null,
+          maxHr: metrics?.max_hr ?? null,
+          restingHr: metrics?.resting_hr ?? null,
+        })
+
+        // Speed columns follow the same unit system as distance.
+        const speedFactor = useMetric ? 1 / 3.6 : METRES_PER_MILE / 3600
+
+        return [
+          {
+            user_id: userId,
+            source: 'manual' as const,
+            external_id: externalId(row),
+            activity_type: row.activityType,
+            sport_type: toSportType(row.activityType),
+            title: row.title,
+            start_time: startedAt.toISOString(),
+            timezone: timeZone,
+            duration_seconds: durationSeconds,
+            moving_seconds: movingSeconds,
+            distance_meters: row.distanceMeters === null ? null : row.distanceMeters * metresPerUnit,
+            elevation_gain_meters:
+              row.elevationGain === null ? null : row.elevationGain * (useMetric ? 1 : METRES_PER_FOOT),
+            avg_speed: row.avgSpeed === null ? null : row.avgSpeed * speedFactor,
+            max_speed: row.maxSpeed === null ? null : row.maxSpeed * speedFactor,
+            avg_hr: row.avgHr === null ? null : Math.round(row.avgHr),
+            max_hr: row.maxHr === null ? null : Math.round(row.maxHr),
+            avg_cadence: row.avgCadence === null ? null : Math.round(row.avgCadence),
+            max_cadence: row.maxCadence === null ? null : Math.round(row.maxCadence),
+            training_load: trainingLoad,
+            intensity_factor: intensityFactor,
+          },
+        ]
+      })
+
+    if (inserts.length > 0) {
+      const { error: insertError } = await supabase
+        .from('activities')
+        .upsert(inserts, { onConflict: 'user_id,source,external_id' })
+
+      if (insertError) throw new Error(insertError.message)
+      created = inserts.length
+    }
+  }
+
+  const removedDuplicates = created > 0 ? await removeDuplicateManualActivities(userId) : 0
+  const touched = updated + created
+
+  const activitiesRecalculated = touched > 0 ? await recomputeActivityLoads(userId) : 0
+  if (touched > 0) await recomputeTrainingLoad(userId)
 
   return {
     parsed: rows.length,
     withHeartRate: usable.length,
     matched: pairs.length,
     updated,
+    created: created - removedDuplicates,
+    removedDuplicates,
     unmatched: usable.length - pairs.length,
     unit: useMetric ? 'km' : 'mi',
     activitiesRecalculated,
