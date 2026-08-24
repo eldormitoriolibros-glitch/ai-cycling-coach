@@ -50,6 +50,13 @@ export function serverEnv(): ServerEnv {
   return cached
 }
 
+/** Variable names and reasons, never values — safe to expose from a health check. */
+export function serverEnvIssues(): string[] {
+  const parsed = serverSchema.safeParse(process.env)
+  if (parsed.success) return []
+  return parsed.error.issues.map((i) => `${i.path.join('.') || 'env'}: ${i.message}`)
+}
+
 /**
  * Optional integrations. The app runs without them; each feature checks its own
  * config and degrades instead of crashing at boot.
