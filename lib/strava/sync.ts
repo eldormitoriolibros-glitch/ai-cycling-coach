@@ -2,7 +2,12 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { removeDuplicateManualActivities } from '@/lib/training/dedupe'
 import { recomputeActivityLoads, recomputeTrainingLoad } from '@/lib/training/rollup'
 import { getActivity, listActivities, StravaError } from './client'
-import { backfillPowerCurves, STREAM_LIMIT_BACKGROUND, STREAM_LIMIT_MANUAL } from './streams'
+import {
+  backfillPowerCurves,
+  backfillActivitySamples,
+  STREAM_LIMIT_BACKGROUND,
+  STREAM_LIMIT_MANUAL,
+} from './streams'
 import { mapStravaActivity, type AthleteThresholds } from './mapper'
 import { getValidAccessToken } from './tokens'
 import type { SyncTrigger } from '@/lib/types/database'
@@ -100,6 +105,13 @@ export async function syncActivities(
     )
     streamsProcessed = backfill.processed
     streamsRemaining = backfill.remaining
+
+    // Download all time-series data for charting (HR, power, cadence, speed, elevation)
+    await backfillActivitySamples(
+      userId,
+      accessToken,
+      trigger === 'manual' ? STREAM_LIMIT_MANUAL : STREAM_LIMIT_BACKGROUND
+    )
 
     // A ride imported from CSV may now exist on Strava as well.
     await removeDuplicateManualActivities(userId)

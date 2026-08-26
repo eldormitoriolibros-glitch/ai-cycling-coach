@@ -9,7 +9,8 @@ import { createClient } from '@/lib/supabase/server'
 export const dynamic = 'force-dynamic'
 
 function back(reason: string) {
-  return NextResponse.redirect(`${serverEnv().NEXT_PUBLIC_SITE_URL}/settings?strava=${reason}`)
+  const siteUrl = serverEnv().NEXT_PUBLIC_SITE_URL
+  return NextResponse.redirect(new URL(`/settings?strava=${reason}`, siteUrl).toString())
 }
 
 export async function GET(request: Request) {

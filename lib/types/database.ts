@@ -21,63 +21,8 @@ export type StreamsStatus = 'ok' | 'no_power' | 'error'
 /** Best mean-maximal watts, keyed by duration in seconds. */
 export type PowerCurve = Record<string, number>
 
-type UserRow = {
-  id: string
-  email: string | null
-  name: string | null
-  age: number | null
-  sex: Sex | null
-  weight_kg: number | null
-  height_cm: number | null
-  experience_level: ExperienceLevel | null
-  cycling_goals: string[]
-  timezone: string
-  locale: Locale
-  telegram_chat_id: number | null
-  telegram_link_code: string | null
-  created_at: string
-  updated_at: string
-}
-
-type AthleteMetricsRow = {
-  user_id: string
-  ftp: number | null
-  max_hr: number | null
-  resting_hr: number | null
-  vo2max: number | null
-  ftp_source: FtpSource
-  ftp_updated_at: string | null
-  created_at: string
-  updated_at: string
-}
-
-type AvailabilityRow = {
-  id: string
-  user_id: string
-  day_of_week: number
-  available: boolean
-  start_time: string
-  end_time: string
-  max_duration_minutes: number
-  created_at: string
-  updated_at: string
-}
-
-type StravaConnectionRow = {
-  user_id: string
-  athlete_id: number | null
-  access_token_encrypted: string
-  refresh_token_encrypted: string
-  expires_at: string
-  scopes: string | null
-  connection_status: ConnectionStatus
-  last_sync_at: string | null
-  last_sync_error: string | null
-  connected_at: string
-  updated_at: string
-}
-
-type ActivityRow = {
+/** Activity row from database. */
+export type ActivityRow = {
   id: string
   user_id: string
   source: ActivitySource
@@ -114,6 +59,62 @@ type ActivityRow = {
   created_at: string
   updated_at: string
 }
+
+type UserRow = {
+  id: string
+  email: string | null
+  name: string | null
+  age: number | null
+  sex: Sex | null
+  weight_kg: number | null
+  height_cm: number | null
+  experience_level: ExperienceLevel | null
+  cycling_goals: string[]
+  timezone: string
+  locale: Locale
+  telegram_chat_id: number | null
+  telegram_link_code: string | null
+  created_at: string
+  updated_at: string
+}
+
+type AthleteMetricsRow = {
+  user_id: string
+  ftp: number | null
+  max_hr: number | null
+  resting_hr: number | null
+  vo2max: number | null
+  ftp_source: FtpSource
+  ftp_updated_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+type AvailabilityRow = {
+  id: string
+  user_id: string
+  day_of_week: number
+  bike_minutes: number
+  strength_minutes: number
+  created_at: string
+  updated_at: string
+}
+
+type StravaConnectionRow = {
+  user_id: string
+  athlete_id: number | null
+  access_token_encrypted: string
+  refresh_token_encrypted: string
+  expires_at: string
+  scopes: string | null
+  connection_status: ConnectionStatus
+  last_sync_at: string | null
+  last_sync_error: string | null
+  connected_at: string
+  updated_at: string
+}
+
+// ActivityRow is exported above
 
 type TrainingLoadRow = {
   id: string

@@ -5,19 +5,6 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
-/** Postgres `time` comes back as `HH:MM:SS`; `<input type="time">` wants `HH:MM`. */
-export function toTimeInput(value: string | null | undefined, fallback: string): string {
-  if (!value) return fallback
-  const [h, m] = value.split(':')
-  if (h === undefined || m === undefined) return fallback
-  return `${h.padStart(2, '0')}:${m}`
-}
-
-/** Inverse of `toTimeInput`. */
-export function toPgTime(value: string): string {
-  return value.length === 5 ? `${value}:00` : value
-}
-
 export function parseIntOrNull(value: string): number | null {
   const trimmed = value.trim()
   if (!trimmed) return null

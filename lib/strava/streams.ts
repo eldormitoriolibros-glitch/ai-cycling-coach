@@ -1,6 +1,6 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { computeNormalizedPower, computePowerCurve, maxPower } from '@/lib/training/power-curve'
-import { getWattsStream, StravaError } from './client'
+import { getAllStreams, getWattsStream, StravaError } from './client'
 
 import 'server-only'
 
@@ -54,6 +54,112 @@ export async function backfillPowerCurves(
           power_curve: hasData ? curve : null,
           normalized_power: watts ? computeNormalizedPower(watts) : null,
           max_power: watts ? maxPower(watts) : null,
+          streams_status: hasData ? 'ok' : 'no_power',
+          streams_fetched_at: new Date().toISOString(),
+        })
+        .eq('id', activity.id)
+
+      processed++
+    } catch (err) {
+      if (err instanceof StravaError && err.status === 429) break
+
+      await supabase
+        .from('activities')
+        .update({ streams_status: 'error', streams_fetched_at: new Date().toISOString() })
+        .eq('id', activity.id)
+    }
+  }
+
+  return { processed, remaining: Math.max(0, (count ?? 0) - processed) }
+}
+
+/**
+ * Fetches and stores all streams (second-by-second data) for rides that don't have
+ * samples yet. This enables precise time-series graphs with real HR, power, cadence data.
+ *
+ * Stops early on a rate limit; the next run resumes where this one stopped.
+ */
+export async function backfillActivitySamples(
+  userId: string,
+  accessToken: string,
+  limit = STREAM_LIMIT_BACKGROUND
+): Promise<BackfillResult> {
+  const supabase = createAdminClient()
+
+  const { data: candidates, count } = await supabase
+    .from('activities')
+    .select('id, external_id, duration_seconds, moving_seconds', { count: 'exact' })
+    .eq('user_id', userId)
+    .eq('source', 'strava')
+    .order('start_time', { ascending: false })
+    .limit(limit * 3)
+
+  if (!candidates?.length) return { processed: 0, remaining: 0 }
+
+  // A candidate needs (re)fetching if it has no samples yet, or if its last
+  // stored sample stops well short of the ride's real duration — the
+  // signature left by the old delete+insert race that used to abort mid-chunk.
+  const unsynced: typeof candidates = []
+  for (const activity of candidates) {
+    if (unsynced.length >= limit) break
+    const { data: lastSample } = (await supabase
+      .from('activity_samples')
+      .select('offset_seconds')
+      .eq('activity_id', activity.id)
+      .order('offset_seconds', { ascending: false })
+      .limit(1)
+      .maybeSingle()) as { data: { offset_seconds: number } | null }
+
+    const expectedDuration = activity.duration_seconds ?? activity.moving_seconds ?? 0
+    const lastOffset = lastSample?.offset_seconds ?? -1
+    const incomplete = expectedDuration > 0 && lastOffset < expectedDuration * 0.9
+
+    if (lastOffset < 0 || incomplete) unsynced.push(activity)
+  }
+
+  if (!unsynced.length) return { processed: 0, remaining: 0 }
+
+  let processed = 0
+
+  for (const activity of unsynced) {
+    try {
+      const streams = await getAllStreams(accessToken, Number(activity.external_id))
+      const hasData = streams !== null && streams.time.length > 0
+
+      if (hasData && streams) {
+        // Insert activity samples (second-by-second data)
+        const samples = streams.time.map((offsetSeconds, idx) => ({
+          user_id: userId,
+          activity_id: activity.id,
+          offset_seconds: offsetSeconds,
+          heart_rate: streams.heartrate[idx],
+          power: streams.watts[idx],
+          cadence: streams.cadence[idx],
+          speed: streams.velocity_smooth[idx],
+          elevation: streams.altitude[idx],
+          temperature: streams.temperature[idx],
+          latitude: streams.latlng[idx]?.[0] ?? null,
+          longitude: streams.latlng[idx]?.[1] ?? null,
+        }))
+
+        // Upsert instead of delete+insert: avoids losing already-stored rows to a
+        // conflict if two syncs for the same activity ever overlap.
+        for (let i = 0; i < samples.length; i += 1000) {
+          const chunk = samples.slice(i, i + 1000) as any
+          if (chunk.length > 0) {
+            const { error: insertError } = await supabase
+              .from('activity_samples')
+              .upsert(chunk, { onConflict: 'activity_id,offset_seconds' })
+            if (insertError) {
+              console.error(`backfillActivitySamples: upsert failed for activity ${activity.id}:`, insertError.message)
+            }
+          }
+        }
+      }
+
+      await supabase
+        .from('activities')
+        .update({
           streams_status: hasData ? 'ok' : 'no_power',
           streams_fetched_at: new Date().toISOString(),
         })

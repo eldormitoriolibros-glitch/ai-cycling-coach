@@ -29,7 +29,7 @@ export async function reconcileWorkouts(userId: string): Promise<ReconcileResult
   const [{ data: workouts }, { data: activities }] = await Promise.all([
     supabase
       .from('workouts')
-      .select('id, scheduled_date')
+      .select('id, scheduled_date, workout_type')
       .eq('user_id', userId)
       .eq('status', 'scheduled')
       .gte('scheduled_date', from)
@@ -45,6 +45,13 @@ export async function reconcileWorkouts(userId: string): Promise<ReconcileResult
 
   if (!workouts?.length) return { completed: 0, skipped: 0 }
 
+  // Strava can only confirm cycling sessions. Anything else (e.g. a future
+  // strength/gym entry) is left 'scheduled' instead of being auto-marked
+  // skipped just because no ride shows up that day.
+  const CYCLING_TYPES = new Set(['recovery', 'endurance', 'long', 'tempo', 'threshold', 'vo2max'])
+  const reconcilable = workouts.filter((w) => !w.workout_type || CYCLING_TYPES.has(w.workout_type))
+  if (!reconcilable.length) return { completed: 0, skipped: 0 }
+
   const byDate = new Map<string, string>()
   for (const activity of activities ?? []) {
     const key = localDateKey(activity.start_time, timeZone)
@@ -55,7 +62,7 @@ export async function reconcileWorkouts(userId: string): Promise<ReconcileResult
   let skipped = 0
 
   await Promise.all(
-    workouts.map((workout) => {
+    reconcilable.map((workout) => {
       const activityId = byDate.get(workout.scheduled_date)
       if (activityId) completed++
       else skipped++

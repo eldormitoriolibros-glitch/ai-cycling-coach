@@ -125,26 +125,74 @@ export async function getActivity(accessToken: string, activityId: number): Prom
   }
 }
 
+export type StravaStream = {
+  time: number[]
+  watts: (number | null)[]
+  heartrate: (number | null)[]
+  cadence: (number | null)[]
+  velocity_smooth: (number | null)[]
+  altitude: (number | null)[]
+  temperature: (number | null)[]
+  latlng: ([number, number] | null)[]
+}
+
+/** Download all available streams (second-by-second data) for an activity. */
+export async function getAllStreams(
+  accessToken: string,
+  activityId: number
+): Promise<StravaStream | null> {
+  try {
+    const streams = await apiGet<Record<string, { data?: unknown[] }>>(
+      `/activities/${activityId}/streams`,
+      accessToken,
+      {
+        keys: 'time,watts,heartrate,cadence,velocity_smooth,altitude,temperature,latlng',
+        key_by_type: 'true',
+        // Force max data density; Strava defaults to a reduced (~1000pt) resolution otherwise.
+        resolution: 'high',
+      }
+    )
+
+    // Must have time data to be valid
+    const timeData = streams.time?.data
+    if (!Array.isArray(timeData)) return null
+
+    const extractStream = (name: string): (number | null)[] =>
+      Array.isArray(streams[name]?.data)
+        ? streams[name].data.map((v) => (typeof v === 'number' ? v : null))
+        : timeData.map(() => null)
+
+    const latlngData = Array.isArray(streams.latlng?.data)
+      ? streams.latlng.data.map((v) =>
+          Array.isArray(v) && v.length === 2 && typeof v[0] === 'number' && typeof v[1] === 'number'
+            ? ([v[0], v[1]] as [number, number])
+            : null
+        )
+      : timeData.map(() => null)
+
+    return {
+      time: timeData.map((v) => (typeof v === 'number' ? v : 0)),
+      watts: extractStream('watts'),
+      heartrate: extractStream('heartrate'),
+      cadence: extractStream('cadence'),
+      velocity_smooth: extractStream('velocity_smooth'),
+      altitude: extractStream('altitude'),
+      temperature: extractStream('temperature'),
+      latlng: latlngData,
+    }
+  } catch (error) {
+    if (error instanceof StravaError && (error.status === 404 || error.status === 403)) return null
+    throw error
+  }
+}
+
 /** One watts value per recorded second, or null when the ride has no power data. */
 export async function getWattsStream(
   accessToken: string,
   activityId: number
 ): Promise<Array<number | null> | null> {
-  try {
-    const streams = await apiGet<Record<string, { data?: unknown[] }>>(
-      `/activities/${activityId}/streams`,
-      accessToken,
-      { keys: 'watts', key_by_type: 'true' }
-    )
-
-    const data = streams.watts?.data
-    if (!Array.isArray(data)) return null
-
-    return data.map((value) => (typeof value === 'number' ? value : null))
-  } catch (error) {
-    if (error instanceof StravaError && (error.status === 404 || error.status === 403)) return null
-    throw error
-  }
+  const streams = await getAllStreams(accessToken, activityId)
+  return streams?.watts ?? null
 }
 
 export async function deauthorize(accessToken: string): Promise<void> {

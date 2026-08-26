@@ -3,6 +3,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { Alert, Card } from '@/components/ui'
 import { createClient } from '@/lib/supabase/server'
 import { formatDistance, formatDuration } from '@/lib/utils'
+import { SyncUnsyncedButton } from '@/components/SyncUnsyncedButton'
 
 export const dynamic = 'force-dynamic'
 
@@ -68,6 +69,8 @@ export default async function ActivitiesPage({
         </p>
       </div>
 
+      <SyncUnsyncedButton />
+
       {error && <Card>No se pudieron cargar las actividades: {error.message}</Card>}
 
       {(missingLoad ?? 0) > 0 && (
@@ -115,43 +118,45 @@ export default async function ActivitiesPage({
 
       <div className="space-y-2">
         {activities?.map((activity) => (
-          <Card key={activity.id} className="p-4">
-            <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <h2 className="font-medium">
-                {activity.title ?? 'Sin título'}
-                {activity.source === 'manual' && (
-                  <span className="ml-2 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-500">
-                    CSV
-                  </span>
-                )}
-              </h2>
-              <time className="text-xs text-slate-500" dateTime={activity.start_time}>
-                {new Date(activity.start_time).toLocaleString('es-AR')}
-              </time>
-            </div>
-            <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-sm sm:grid-cols-5">
-              <Stat label="Distancia" value={formatDistance(activity.distance_meters)} />
-              <Stat
-                label="Tiempo"
-                value={formatDuration(activity.moving_seconds ?? activity.duration_seconds)}
-              />
-              <Stat label="Pulso" value={activity.avg_hr ? `${activity.avg_hr} ppm` : '—'} />
-              <Stat
-                label={activity.has_power_meter ? 'Potencia' : 'Potencia (est.)'}
-                value={
-                  activity.normalized_power
-                    ? `${Math.round(activity.normalized_power)} W NP`
-                    : activity.avg_power
-                      ? `${Math.round(activity.avg_power)} W`
-                      : '—'
-                }
-              />
-              <Stat
-                label="Carga"
-                value={activity.training_load ? String(activity.training_load) : '—'}
-              />
-            </dl>
-          </Card>
+          <Link key={activity.id} href={`/activities/${activity.id}`}>
+            <Card className="p-4 transition hover:bg-slate-50 cursor-pointer">
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <h2 className="font-medium">
+                  {activity.title ?? 'Sin título'}
+                  {activity.source === 'manual' && (
+                    <span className="ml-2 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-500">
+                      CSV
+                    </span>
+                  )}
+                </h2>
+                <time className="text-xs text-slate-500" dateTime={activity.start_time}>
+                  {new Date(activity.start_time).toLocaleString('es-AR')}
+                </time>
+              </div>
+              <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-sm sm:grid-cols-5">
+                <Stat label="Distancia" value={formatDistance(activity.distance_meters)} />
+                <Stat
+                  label="Tiempo"
+                  value={formatDuration(activity.moving_seconds ?? activity.duration_seconds)}
+                />
+                <Stat label="Pulso" value={activity.avg_hr ? `${activity.avg_hr} ppm` : '—'} />
+                <Stat
+                  label={activity.has_power_meter ? 'Potencia' : 'Potencia (est.)'}
+                  value={
+                    activity.normalized_power
+                      ? `${Math.round(activity.normalized_power)} W NP`
+                      : activity.avg_power
+                        ? `${Math.round(activity.avg_power)} W`
+                        : '—'
+                  }
+                />
+                <Stat
+                  label="Carga"
+                  value={activity.training_load ? String(activity.training_load) : '—'}
+                />
+              </dl>
+            </Card>
+          </Link>
         ))}
       </div>
 

@@ -58,9 +58,9 @@ export async function proposeWeeklyPlan(userId: string, startDate?: string): Pro
       supabase.from('athlete_metrics').select('ftp, max_hr').eq('user_id', userId).maybeSingle(),
       supabase
         .from('availability')
-        .select('day_of_week, start_time, end_time, max_duration_minutes')
+        .select('day_of_week, bike_minutes, strength_minutes')
         .eq('user_id', userId)
-        .eq('available', true),
+        .gt('bike_minutes', 0),
       supabase
         .from('training_load')
         .select('chronic_load, form')

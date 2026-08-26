@@ -55,7 +55,7 @@ export function GarminImportCard() {
         <h2 className="font-bold">Importar CSV de Garmin</h2>
         <p className="text-sm text-slate-600">
           Strava no siempre recibe la frecuencia cardíaca de tu Garmin. Exportá la lista de
-          actividades desde Garmin Connect y traé el pulso acá.
+          actividades desde Garmin Connect o subí un FIT exportado desde tu equipo y traé el pulso acá.
         </p>
       </div>
 
@@ -63,6 +63,7 @@ export function GarminImportCard() {
         <li>Garmin Connect (web) → Actividades → Todas las actividades</li>
         <li>Filtrá por ciclismo y bajá hasta cargar todo el período que quieras</li>
         <li>Botón de exportar (arriba a la derecha) → se descarga un CSV</li>
+        <li>O exportá el archivo FIT desde el dispositivo y subilo acá</li>
         <li>Subilo acá</li>
       </ol>
 
@@ -86,7 +87,7 @@ export function GarminImportCard() {
       <input
         ref={inputRef}
         type="file"
-        accept=".csv,text/csv"
+        accept=".csv,text/csv,.fit"
         disabled={busy}
         onChange={(e) => {
           const file = e.target.files?.[0]

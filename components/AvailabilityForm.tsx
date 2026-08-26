@@ -3,26 +3,20 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Alert, Button, Card, Input, Spinner } from '@/components/ui'
-import { toPgTime, toTimeInput } from '@/lib/utils'
 
 const DAYS = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado']
 
 type Row = {
   day_of_week: number
-  available: boolean
-  start_time: string
-  end_time: string
-  max_duration_minutes: number
+  bike_hours: number
+  strength_hours: number
 }
 
 const defaultRows = (): Row[] =>
-  Array.from({ length: 7 }, (_, i) => ({
-    day_of_week: i,
-    available: false,
-    start_time: '08:00',
-    end_time: '09:00',
-    max_duration_minutes: 60,
-  }))
+  Array.from({ length: 7 }, (_, i) => ({ day_of_week: i, bike_hours: 0, strength_hours: 0 }))
+
+/** DB stores minutes; the form works in hours since that's how the athlete thinks about it. */
+const minutesToHours = (minutes: number) => Math.round((minutes / 60) * 4) / 4 // nearest quarter hour
 
 export function AvailabilityForm() {
   const supabase = createClient()
@@ -59,10 +53,8 @@ export function AvailabilityForm() {
             if (!saved) return row
             return {
               day_of_week: saved.day_of_week,
-              available: saved.available,
-              start_time: toTimeInput(saved.start_time, row.start_time),
-              end_time: toTimeInput(saved.end_time, row.end_time),
-              max_duration_minutes: saved.max_duration_minutes,
+              bike_hours: minutesToHours(saved.bike_minutes),
+              strength_hours: minutesToHours(saved.strength_minutes),
             }
           })
         )
@@ -91,24 +83,14 @@ export function AvailabilityForm() {
 
     setError(null)
     setSuccess(null)
-
-    // Mirrors the availability_window_valid CHECK constraint.
-    const invalid = rows.find((r) => r.end_time <= r.start_time)
-    if (invalid) {
-      setError(`${DAYS[invalid.day_of_week]}: la hora de fin debe ser posterior a la de inicio.`)
-      return
-    }
-
     setSaving(true)
     try {
       const { error: saveError } = await supabase.from('availability').upsert(
         rows.map((r) => ({
           user_id: userId,
           day_of_week: r.day_of_week,
-          available: r.available,
-          start_time: toPgTime(r.start_time),
-          end_time: toPgTime(r.end_time),
-          max_duration_minutes: r.max_duration_minutes,
+          bike_minutes: Math.round(r.bike_hours * 60),
+          strength_minutes: Math.round(r.strength_hours * 60),
         })),
         { onConflict: 'user_id,day_of_week' }
       )
@@ -132,54 +114,39 @@ export function AvailabilityForm() {
 
   return (
     <Card>
+      <p className="mb-4 text-sm text-slate-600">
+        Cargá cuántas horas tenés por día para bici y, si corresponde, para fuerza. Vos manejás los horarios; la app
+        solo necesita saber cuánto tiempo tiene disponible para planificar.
+      </p>
       <form onSubmit={handleSubmit} className="space-y-4">
         {rows.map((row, i) => (
           <fieldset
             key={row.day_of_week}
-            className="grid grid-cols-1 gap-3 border-b border-slate-100 pb-4 last:border-0 sm:grid-cols-4 sm:items-end"
+            className="grid grid-cols-1 gap-3 border-b border-slate-100 pb-4 last:border-0 sm:grid-cols-3 sm:items-end"
           >
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                className="h-4 w-4 rounded border-slate-300"
-                checked={row.available}
-                onChange={(e) => updateRow(i, { available: e.target.checked })}
-              />
-              <span className="font-medium">{DAYS[row.day_of_week]}</span>
-            </label>
+            <span className="font-medium">{DAYS[row.day_of_week]}</span>
 
             <label className="block space-y-1">
-              <span className="text-xs text-slate-500">Desde</span>
-              <Input
-                type="time"
-                value={row.start_time}
-                disabled={!row.available}
-                onChange={(e) => updateRow(i, { start_time: e.target.value })}
-              />
-            </label>
-
-            <label className="block space-y-1">
-              <span className="text-xs text-slate-500">Hasta</span>
-              <Input
-                type="time"
-                value={row.end_time}
-                disabled={!row.available}
-                onChange={(e) => updateRow(i, { end_time: e.target.value })}
-              />
-            </label>
-
-            <label className="block space-y-1">
-              <span className="text-xs text-slate-500">Duración máx (min)</span>
+              <span className="text-xs text-slate-500">Horas de bici</span>
               <Input
                 type="number"
                 min={0}
-                max={1440}
-                step={5}
-                value={row.max_duration_minutes}
-                disabled={!row.available}
-                onChange={(e) =>
-                  updateRow(i, { max_duration_minutes: Number.parseInt(e.target.value, 10) || 0 })
-                }
+                max={24}
+                step={0.25}
+                value={row.bike_hours}
+                onChange={(e) => updateRow(i, { bike_hours: Number.parseFloat(e.target.value) || 0 })}
+              />
+            </label>
+
+            <label className="block space-y-1">
+              <span className="text-xs text-slate-500">Horas de fuerza (opcional)</span>
+              <Input
+                type="number"
+                min={0}
+                max={24}
+                step={0.25}
+                value={row.strength_hours}
+                onChange={(e) => updateRow(i, { strength_hours: Number.parseFloat(e.target.value) || 0 })}
               />
             </label>
           </fieldset>

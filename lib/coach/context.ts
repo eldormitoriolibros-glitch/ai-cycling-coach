@@ -1,5 +1,7 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { formatDistance, formatDuration } from '@/lib/utils'
+import { addDays } from '@/lib/training/dates'
+import { buildRecentActivityInsights } from './activity-insights'
 
 import 'server-only'
 
@@ -16,7 +18,7 @@ export async function buildAthleteContext(userId: string): Promise<string> {
     await Promise.all([
       supabase.from('users').select('*').eq('id', userId).maybeSingle(),
       supabase.from('athlete_metrics').select('*').eq('user_id', userId).maybeSingle(),
-      supabase.from('availability').select('*').eq('user_id', userId).eq('available', true),
+      supabase.from('availability').select('*').eq('user_id', userId),
       supabase
         .from('training_load')
         .select('date, chronic_load, acute_load, form, ramp_rate')
@@ -34,9 +36,9 @@ export async function buildAthleteContext(userId: string): Promise<string> {
         .from('workouts')
         .select('scheduled_date, title, workout_type, duration_minutes, status')
         .eq('user_id', userId)
-        .gte('scheduled_date', new Date().toISOString().slice(0, 10))
+        .gte('scheduled_date', addDays(new Date().toISOString().slice(0, 10), -10))
         .order('scheduled_date', { ascending: true })
-        .limit(7),
+        .limit(20),
       supabase
         .from('recovery_metrics')
         .select('date, resting_hr, hrv, soreness, motivation')
@@ -88,11 +90,16 @@ export async function buildAthleteContext(userId: string): Promise<string> {
 
   lines.push('')
   lines.push('## Disponibilidad semanal')
-  if (availability.data?.length) {
-    for (const a of availability.data.sort((x, y) => x.day_of_week - y.day_of_week)) {
-      lines.push(
-        `- ${DAYS[a.day_of_week]}: ${a.start_time.slice(0, 5)}–${a.end_time.slice(0, 5)}, máx ${a.max_duration_minutes} min`
-      )
+  const availableDays = (availability.data ?? [])
+    .filter((a) => a.bike_minutes > 0 || a.strength_minutes > 0)
+    .sort((x, y) => x.day_of_week - y.day_of_week)
+  if (availableDays.length) {
+    for (const a of availableDays) {
+      const parts = [
+        a.bike_minutes > 0 ? `${(a.bike_minutes / 60).toFixed(1)} h bici` : null,
+        a.strength_minutes > 0 ? `${(a.strength_minutes / 60).toFixed(1)} h fuerza` : null,
+      ].filter(Boolean)
+      lines.push(`- ${DAYS[a.day_of_week]}: ${parts.join(', ')}`)
     }
   } else {
     lines.push('- no configurada')
@@ -125,10 +132,12 @@ export async function buildAthleteContext(userId: string): Promise<string> {
 
   if (workouts.data?.length) {
     lines.push('')
-    lines.push('## Entrenamientos planificados')
+    lines.push('## Entrenamientos prescriptos (últimos 10 días y próximos 7)')
+    const today = new Date().toISOString().slice(0, 10)
     for (const w of workouts.data) {
+      const when = w.scheduled_date < today ? 'pasado' : w.scheduled_date === today ? 'hoy' : 'futuro'
       lines.push(
-        `- ${w.scheduled_date} · ${w.title ?? w.workout_type ?? 'sesión'} · ${w.duration_minutes ?? '?'} min · ${w.status}`
+        `- ${w.scheduled_date} (${when}) · ${w.title ?? w.workout_type ?? 'sesión'} · ${w.duration_minutes ?? '?'} min · estado: ${w.status}`
       )
     }
   }
@@ -158,6 +167,8 @@ export async function buildAthleteContext(userId: string): Promise<string> {
       if (parts.length) lines.push(`- ${date}: ${parts.join(', ')}`)
     }
   }
+
+  lines.push(await buildRecentActivityInsights(userId, m?.max_hr ?? null, m?.ftp ?? null))
 
   return lines.join('\n')
 }

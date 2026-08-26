@@ -12,7 +12,7 @@ const SECTIONS = [
   { href: '/power', title: 'Potencia', description: 'Curva de potencia, FTP estimado y zonas.' },
   { href: '/recovery', title: 'Recuperación', description: 'Sueño, FC en reposo, HRV y sensaciones.' },
   { href: '/profile', title: 'Perfil ciclista', description: 'Datos personales, FTP y frecuencias cardíacas.' },
-  { href: '/availability', title: 'Disponibilidad', description: 'Días y horarios en los que podés entrenar.' },
+  { href: '/availability', title: 'Disponibilidad', description: 'Horas por día para bici y fuerza.' },
   { href: '/settings', title: 'Conexiones', description: 'Conectá Strava y Telegram.' },
 ]
 

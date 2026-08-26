@@ -12,9 +12,8 @@ export type SessionKind = 'recovery' | 'endurance' | 'long' | 'tempo' | 'thresho
 
 export type AvailabilityWindow = {
   day_of_week: number
-  start_time: string
-  end_time: string
-  max_duration_minutes: number
+  bike_minutes: number
+  strength_minutes: number
 }
 
 export type PlannerInput = {
@@ -141,12 +140,6 @@ const TEMPLATES: Record<
   },
 }
 
-function minutesBetween(start: string, end: string): number {
-  const [sh, sm] = start.split(':').map(Number)
-  const [eh, em] = end.split(':').map(Number)
-  return Math.max(0, eh * 60 + em - (sh * 60 + sm))
-}
-
 function loadFor(minutes: number, intensityFactor: number): number {
   return Math.round((minutes / 60) * intensityFactor ** 2 * 100)
 }
@@ -204,10 +197,7 @@ export function buildWeeklyPlan(input: PlannerInput): PlanDraft {
     .map((date) => {
       const window = windows.get(dayOfWeek(date))
       if (!window) return null
-      const capMinutes = Math.min(
-        minutesBetween(window.start_time, window.end_time),
-        window.max_duration_minutes
-      )
+      const capMinutes = window.bike_minutes
       return capMinutes >= 30 ? { date, capMinutes } : null
     })
     .filter((c): c is { date: string; capMinutes: number } => c !== null)

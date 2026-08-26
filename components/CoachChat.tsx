@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { Send } from 'lucide-react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { Alert, Button, Card } from '@/components/ui'
 
 export type CoachMessage = {
@@ -11,6 +13,32 @@ export type CoachMessage = {
   message: string
   created_at: string
 }
+
+/** Tailwind styling for the coach's markdown replies (tables, bold, lists). */
+const markdownComponents = {
+  p: ({ children }: { children?: React.ReactNode }) => <p className="mb-2 last:mb-0">{children}</p>,
+  strong: ({ children }: { children?: React.ReactNode }) => <strong className="font-semibold">{children}</strong>,
+  ul: ({ children }: { children?: React.ReactNode }) => <ul className="mb-2 list-disc space-y-0.5 pl-4">{children}</ul>,
+  ol: ({ children }: { children?: React.ReactNode }) => <ol className="mb-2 list-decimal space-y-0.5 pl-4">{children}</ol>,
+  li: ({ children }: { children?: React.ReactNode }) => <li>{children}</li>,
+  h1: ({ children }: { children?: React.ReactNode }) => <h3 className="mb-1 font-semibold">{children}</h3>,
+  h2: ({ children }: { children?: React.ReactNode }) => <h3 className="mb-1 font-semibold">{children}</h3>,
+  h3: ({ children }: { children?: React.ReactNode }) => <h3 className="mb-1 font-semibold">{children}</h3>,
+  table: ({ children }: { children?: React.ReactNode }) => (
+    <div className="mb-2 overflow-x-auto">
+      <table className="w-full border-collapse text-xs">{children}</table>
+    </div>
+  ),
+  thead: ({ children }: { children?: React.ReactNode }) => <thead className="bg-slate-200">{children}</thead>,
+  th: ({ children }: { children?: React.ReactNode }) => (
+    <th className="border border-slate-300 px-2 py-1 text-left font-semibold">{children}</th>
+  ),
+  td: ({ children }: { children?: React.ReactNode }) => <td className="border border-slate-300 px-2 py-1">{children}</td>,
+  code: ({ children }: { children?: React.ReactNode }) => (
+    <code className="rounded bg-slate-200 px-1 py-0.5 text-[0.85em]">{children}</code>
+  ),
+}
+
 
 const SUGGESTIONS = [
   '¿Qué debería entrenar hoy?',
@@ -101,13 +129,19 @@ export function CoachChat({ initialMessages }: { initialMessages: CoachMessage[]
             className={message.direction === 'inbound' ? 'flex justify-end' : 'flex justify-start'}
           >
             <div
-              className={`max-w-[85%] whitespace-pre-wrap rounded-lg px-3 py-2 text-sm ${
+              className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${
                 message.direction === 'inbound'
-                  ? 'bg-slate-900 text-white'
+                  ? 'whitespace-pre-wrap bg-slate-900 text-white'
                   : 'bg-slate-100 text-slate-800'
               }`}
             >
-              {message.message}
+              {message.direction === 'inbound' ? (
+                message.message
+              ) : (
+                <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+                  {message.message}
+                </ReactMarkdown>
+              )}
               {message.channel === 'telegram' && (
                 <span className="mt-1 block text-[10px] opacity-60">vía Telegram</span>
               )}

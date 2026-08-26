@@ -58,7 +58,14 @@ export async function POST(request: Request) {
 
   try {
     if (parsed.data.action === 'propose') {
+      if (!user.id) {
+        return NextResponse.json({ error: 'No se pudo identificar el usuario.' }, { status: 400 })
+      }
       return NextResponse.json(await proposeWeeklyPlan(user.id, parsed.data.startDate))
+    }
+
+    if (!user.id) {
+      return NextResponse.json({ error: 'No se pudo identificar el usuario.' }, { status: 400 })
     }
 
     const created = await commitWeeklyPlan(user.id, parsed.data.draft, parsed.data.rationale)

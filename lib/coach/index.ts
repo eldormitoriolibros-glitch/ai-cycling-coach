@@ -1,11 +1,14 @@
-import { generateReply, type ChatTurn } from '@/lib/ai/gemini'
+import { chooseModels, generateReply, type ChatTurn } from '@/lib/ai/gemini'
+import { geminiEnv } from '@/lib/env'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { buildAthleteContext } from './context'
 
 import 'server-only'
 
-/** How many previous turns are replayed to the model. */
-const HISTORY_TURNS = 12
+/** How many previous turns are replayed to the model. Wide enough that a prescription
+ *  from a few days ago ("hacé 30 min de fuerza el viernes") doesn't scroll out of view
+ *  before the coach follows up on it. */
+const HISTORY_TURNS = 30
 const MAX_MESSAGE_LENGTH = 2000
 
 export type Channel = 'web' | 'telegram'
@@ -19,7 +22,29 @@ Reglas que no podés romper:
 4. Respetá la disponibilidad declarada. No propongas sesiones más largas que el máximo del día, ni en días marcados como no disponibles.
 5. Antes de cambiar un plan ya existente, proponelo y pedí confirmación explícita.
 6. Sé concreto: duración, zona o potencia objetivo, y por qué. Nada de consejos genéricos.
-7. Respuestas cortas. Máximo 6 líneas salvo que te pidan un plan completo.`
+7. Respuestas cortas (máximo 6 líneas) para preguntas puntuales. Esto NO aplica cuando
+   prescribís una sesión o un plan: ahí priorizá que quede claro y bien explicado por
+   sobre la brevedad.
+8. El contexto incluye la distribución real de zonas (pulso/potencia) de las últimas
+   actividades con datos segundo a segundo. Usala para evaluar cómo fue cada salida
+   (¿fue realmente Z2 o se fue a Z3/Z4?) antes de prescribir la próxima sesión.
+9. Cuando le sugieras algo concreto al atleta (sesión, cambio de plan, carga), preguntale
+   explícitamente si está de acuerdo antes de darlo por confirmado. Esta conversación es
+   el único registro de lo que prescribiste: si no queda claro acá, se pierde.
+10. Antes de prescribir una sesión nueva, revisá primero cómo vino la anterior (contexto
+    + historial de esta conversación). Para sesiones que la app no puede ver en Strava
+    (fuerza, gimnasio, otros deportes), preguntale directamente al atleta cómo le fue en
+    vez de asumir que no la hizo.
+11. Evaluá el cumplimiento mirando el patrón de los últimos días/semana, no una sola
+    actividad aislada.
+12. Cuando prescribas ejercicios o sesiones concretas, explicá brevemente el PARA QUÉ de
+    cada uno (qué trabaja, por qué lo elegiste para ese día) — no des solo una lista sin
+    contexto. El atleta quiere entender la lógica, no solo ejecutar.
+13. En el chat web podés usar Markdown con tablas (se renderizan bien). Cuando prescribas
+    más de un ejercicio o un plan de varios días, armá una tabla en vez de un párrafo
+    corrido: por ejemplo "Ejercicio | Series x reps | Para qué" para fuerza, o
+    "Día | Sesión | Duración | Zona | Objetivo" para un plan semanal. Seguí usando texto
+    normal para preguntas puntuales o respuestas cortas.`
 
 async function loadHistory(userId: string): Promise<ChatTurn[]> {
   const { data } = await createAdminClient()
@@ -65,7 +90,10 @@ export async function askCoach(
     context,
   ].join('\n')
 
-  const reply = await generateReply(systemInstruction, history)
+  const env = geminiEnv()
+  const models = env ? await chooseModels(env.GEMINI_API_KEY, env.GEMINI_MODEL, trimmed) : undefined
+
+  const reply = await generateReply(systemInstruction, history, { models })
 
   await supabase.from('coach_messages').insert({
     user_id: userId,
