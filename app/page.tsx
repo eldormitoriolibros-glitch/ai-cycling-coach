@@ -54,11 +54,11 @@ export default async function HomePage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold">Panel</h1>
-        <p className="text-slate-600">Hola, {profile?.name || user?.email || 'ciclista'}.</p>
+        <p className="text-muted">Hola, {profile?.name || user?.email || 'ciclista'}.</p>
       </div>
 
       <Card>
-        <h2 className="text-sm font-medium uppercase tracking-wide text-slate-400">Últimos 7 días</h2>
+        <h2 className="text-sm font-medium uppercase tracking-wide text-muted">Últimos 7 días</h2>
         <dl className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-4">
           <Metric label="Salidas" value={String(week.count)} />
           <Metric label="Distancia" value={formatDistance(week.distance)} />
@@ -69,7 +69,7 @@ export default async function HomePage() {
 
       {load && (
         <Card>
-          <h2 className="text-sm font-medium uppercase tracking-wide text-slate-400">
+          <h2 className="text-sm font-medium uppercase tracking-wide text-muted">
             Estado de forma
           </h2>
           <dl className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-4">
@@ -78,8 +78,8 @@ export default async function HomePage() {
             <Metric label="Forma (TSB)" value={fmt(load.form)} />
             <Metric label="Rampa 7d" value={fmt(load.ramp_rate)} />
           </dl>
-          <p className="mt-3 text-sm text-slate-600">{describeForm(load.form)}</p>
-          <p className="mt-1 text-xs text-slate-400">
+          <p className="mt-3 text-sm text-muted">{describeForm(load.form)}</p>
+          <p className="mt-1 text-xs text-muted">
             Valores calculados por esta app a partir de tus datos, no provistos por Strava.
           </p>
         </Card>
@@ -90,10 +90,10 @@ export default async function HomePage() {
           <Link
             key={section.href}
             href={section.href}
-            className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm transition hover:shadow-md"
+            className="rounded-lg border border-surface bg-surface p-4 shadow-sm transition hover:shadow-md"
           >
             <h2 className="font-bold">{section.title}</h2>
-            <p className="text-sm text-slate-600">{section.description}</p>
+            <p className="text-sm text-muted">{section.description}</p>
           </Link>
         ))}
       </div>
@@ -104,8 +104,8 @@ export default async function HomePage() {
 function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <dt className="text-xs uppercase tracking-wide text-slate-400">{label}</dt>
-      <dd className="text-xl font-semibold text-slate-900">{value}</dd>
+      <dt className="text-xs uppercase tracking-wide text-muted">{label}</dt>
+      <dd className="text-xl font-semibold text-foreground">{value}</dd>
     </div>
   )
 }

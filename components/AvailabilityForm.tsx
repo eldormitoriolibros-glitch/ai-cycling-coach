@@ -114,7 +114,7 @@ export function AvailabilityForm() {
 
   return (
     <Card>
-      <p className="mb-4 text-sm text-slate-600">
+      <p className="mb-4 text-sm text-muted">
         Cargá cuántas horas tenés por día para bici y, si corresponde, para fuerza. Vos manejás los horarios; la app
         solo necesita saber cuánto tiempo tiene disponible para planificar.
       </p>
@@ -122,12 +122,12 @@ export function AvailabilityForm() {
         {rows.map((row, i) => (
           <fieldset
             key={row.day_of_week}
-            className="grid grid-cols-1 gap-3 border-b border-slate-100 pb-4 last:border-0 sm:grid-cols-3 sm:items-end"
+            className="grid grid-cols-1 gap-3 border-b border-surface pb-4 last:border-0 sm:grid-cols-3 sm:items-end"
           >
-            <span className="font-medium">{DAYS[row.day_of_week]}</span>
+            <span className="font-medium text-foreground">{DAYS[row.day_of_week]}</span>
 
             <label className="block space-y-1">
-              <span className="text-xs text-slate-500">Horas de bici</span>
+              <span className="text-xs text-muted">Horas de bici</span>
               <Input
                 type="number"
                 min={0}
@@ -139,7 +139,7 @@ export function AvailabilityForm() {
             </label>
 
             <label className="block space-y-1">
-              <span className="text-xs text-slate-500">Horas de fuerza (opcional)</span>
+              <span className="text-xs text-muted">Horas de fuerza (opcional)</span>
               <Input
                 type="number"
                 min={0}

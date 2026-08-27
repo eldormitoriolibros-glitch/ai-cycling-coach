@@ -17,7 +17,11 @@ export default function RootLayout({
 }) {
   return (
     <html lang="es">
-      <body className={`${inter.variable} bg-slate-50 font-sans antialiased`}>
+      <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <link rel="icon" href="/favicon.svg" />
+      </head>
+      <body className={`${inter.variable} dark font-sans antialiased`}>
         <Nav />
         <main className="mx-auto max-w-4xl p-6">{children}</main>
       </body>

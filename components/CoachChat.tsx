@@ -103,7 +103,7 @@ export function CoachChat({ initialMessages }: { initialMessages: CoachMessage[]
   }
 
   return (
-    <Card className="flex h-[70vh] flex-col gap-4 p-4">
+    <Card className="flex h-[60vh] md:h-[70vh] flex-col gap-4 p-4">
       <div className="flex-1 space-y-3 overflow-y-auto pr-1">
         {messages.length === 0 && (
           <div className="space-y-3 py-8 text-center">
@@ -123,31 +123,32 @@ export function CoachChat({ initialMessages }: { initialMessages: CoachMessage[]
           </div>
         )}
 
-        {messages.map((message) => (
-          <div
-            key={message.id}
-            className={message.direction === 'inbound' ? 'flex justify-end' : 'flex justify-start'}
-          >
-            <div
-              className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${
-                message.direction === 'inbound'
-                  ? 'whitespace-pre-wrap bg-slate-900 text-white'
-                  : 'bg-slate-100 text-slate-800'
-              }`}
-            >
-              {message.direction === 'inbound' ? (
-                message.message
-              ) : (
-                <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-                  {message.message}
-                </ReactMarkdown>
-              )}
+        {messages.map((message) => {
+          const isUser = message.direction === 'inbound'
+          return (
+            <div key={message.id} className={isUser ? 'flex justify-end' : 'flex justify-start'}>
+              <div
+                className={`max-w-[85%] sm:max-w-[70%] rounded-lg px-3 py-2 text-sm break-words ${
+                  isUser
+                    ? 'whitespace-pre-wrap bg-primary text-white'
+                    : 'bg-surface text-muted'
+                }`}
+                style={isUser ? { boxShadow: '0 2px 6px rgba(0,0,0,0.3)' } : undefined}
+              >
+                {isUser ? (
+                  message.message
+                ) : (
+                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+                    {message.message}
+                  </ReactMarkdown>
+                )}
               {message.channel === 'telegram' && (
                 <span className="mt-1 block text-[10px] opacity-60">vía Telegram</span>
               )}
+              </div>
             </div>
-          </div>
-        ))}
+          )
+        })}
 
         {sending && <p className="text-xs text-slate-400">El entrenador está pensando…</p>}
         <div ref={endRef} />
