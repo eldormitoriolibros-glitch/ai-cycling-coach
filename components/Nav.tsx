@@ -19,6 +19,14 @@ export async function Nav() {
     data: { user },
   } = await supabase.auth.getUser()
 
+  // prefer profile.username if present
+  let usernameDisplay = ''
+  if (user) {
+    const { data: profile } = await supabase.from('users').select('username, name, email').eq('id', user.id).maybeSingle()
+    if (profile?.username) usernameDisplay = profile.username
+    else usernameDisplay = profile?.name ?? (user.email?.includes('@') ? user.email.split('@')[0] : user.email ?? '')
+  }
+
   return (
     <nav className="bg-slate-900 text-white">
       <div className="mx-auto flex max-w-4xl flex-wrap items-center justify-between gap-3 p-4">
@@ -32,7 +40,7 @@ export async function Nav() {
                 {link.label}
               </Link>
             ))}
-            <span className="hidden opacity-70 sm:inline">{user.email}</span>
+            <span className="hidden opacity-70 sm:inline">{usernameDisplay}</span>
             <SignOutButton />
           </div>
         )}

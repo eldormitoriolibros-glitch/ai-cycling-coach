@@ -8,6 +8,7 @@ import type { ExperienceLevel, Sex } from '@/lib/types/database'
 
 type FormState = {
   name: string
+  username: string
   age: string
   sex: string
   weight: string
@@ -21,6 +22,7 @@ type FormState = {
 
 const EMPTY: FormState = {
   name: '',
+  username: '',
   age: '',
   sex: '',
   weight: '',
@@ -88,6 +90,7 @@ export function ProfileForm() {
 
         setForm({
           name: profile?.name ?? '',
+          username: profile?.username ?? '',
           age: profile?.age?.toString() ?? '',
           sex: profile?.sex ?? '',
           weight: profile?.weight_kg?.toString() ?? '',
@@ -116,7 +119,11 @@ export function ProfileForm() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!userId || saving) return
-
+    // basic validation for username: lowercase letters, numbers, underscores
+    if (form.username && !/^[a-z0-9_]+$/.test(form.username)) {
+      setError('El nombre de usuario solo puede contener letras minúsculas, números y guiones bajos.')
+      return
+    }
     setError(null)
     setSuccess(null)
     setSaving(true)
@@ -126,6 +133,7 @@ export function ProfileForm() {
         .from('users')
         .update({
           name: form.name.trim() || null,
+          username: form.username ? form.username.toLowerCase() : null,
           age: parseIntOrNull(form.age),
           sex: (form.sex || null) as Sex | null,
           weight_kg: parseFloatOrNull(form.weight),
@@ -177,6 +185,10 @@ export function ProfileForm() {
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Nombre" className="sm:col-span-2">
             <Input value={form.name} onChange={(e) => set('name', e.target.value)} />
+          </Field>
+
+          <Field label="Nombre de usuario" hint="Solo letras minúsculas, números y guiones bajos.">
+            <Input value={form.username} onChange={(e) => set('username', e.target.value)} />
           </Field>
 
           <Field label="Edad">
