@@ -18,7 +18,9 @@ export async function POST(request: Request) {
   try {
     const admin = createAdminClient()
     // prefer exact username match on public.users.username
-    let { data, error } = await admin.from('users').select('email').eq('username', identifier).maybeSingle()
+    // Cast the column name to any to satisfy the typed client when schema types
+    // may be out of sync (username column added via migration).
+    let { data, error } = await admin.from('users').select('email').eq('username' as any, identifier).maybeSingle()
     if (error) {
       // fall back to matching email local-part if username column missing or error
       const pattern = `${identifier}@%`
