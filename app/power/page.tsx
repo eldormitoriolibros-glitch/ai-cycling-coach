@@ -52,11 +52,8 @@ export default async function PowerPage() {
         .eq('user_id', user.id)
         .eq('streams_status', 'no_power'),
     ])
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
     summary = results[0]
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
     metrics = results[1].data
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
     estimatedOnly = results[2].count ?? 0
   } catch (err) {
     return (
