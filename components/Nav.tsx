@@ -22,9 +22,14 @@ export async function Nav() {
   // prefer profile.username if present
   let usernameDisplay = ''
   if (user) {
-    const { data: profile } = await supabase.from('users').select('username, name, email').eq('id', user.id).maybeSingle()
-    if (profile?.username) usernameDisplay = profile.username
-    else usernameDisplay = profile?.name ?? (user.email?.includes('@') ? user.email.split('@')[0] : user.email ?? '')
+    const res = await supabase.from('users').select('username, name, email').eq('id', user.id).maybeSingle()
+    if (!res.error) {
+      const profile = res.data as any
+      if (profile?.username) usernameDisplay = profile.username
+      else usernameDisplay = profile?.name ?? (user.email?.includes('@') ? user.email.split('@')[0] : user.email ?? '')
+    } else {
+      usernameDisplay = user.email?.includes('@') ? user.email.split('@')[0] : user.email ?? ''
+    }
   }
 
   return (
