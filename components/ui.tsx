@@ -74,24 +74,49 @@ export function Field({
 }) {
   return (
     <label className={cn('block space-y-1', className)}>
-      <span className="text-sm font-medium text-slate-700">{label}</span>
+      <span className="text-sm font-medium text-foreground">{label}</span>
       {children}
-      {hint && <span className="block text-xs text-slate-500">{hint}</span>}
+      {hint && <span className="block text-xs text-muted">{hint}</span>}
     </label>
   )
 }
 
 const controlStyles =
-  'w-full rounded-md border border-surface px-3 py-2 text-sm shadow-sm ' +
+  'w-full rounded-md border border-surface px-3 py-2 text-sm shadow-sm text-foreground placeholder:text-muted ' +
   'focus:outline-none focus:ring-1 focus:ring-slate-900 ' +
   'disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400'
 
 export function Input({ className, ...props }: React.InputHTMLAttributes<HTMLInputElement>) {
-  return <input {...props} className={cn(controlStyles, className)} />
+  return (
+    <input
+      {...props}
+      className={cn(controlStyles, className)}
+      // ensure input background and text visible in all browsers / themes
+      style={
+        {
+          color: 'rgb(var(--foreground-rgb))',
+          WebkitTextFillColor: 'rgb(var(--foreground-rgb))',
+          backgroundColor: 'rgb(var(--surface-rgb))',
+        } as React.CSSProperties
+      }
+    />
+  )
 }
 
 export function Select({ className, ...props }: React.SelectHTMLAttributes<HTMLSelectElement>) {
-  return <select {...props} className={cn(controlStyles, className)} />
+  return (
+    <select
+      {...props}
+      className={cn(controlStyles, className)}
+      style={
+        {
+          color: 'rgb(var(--foreground-rgb))',
+          WebkitTextFillColor: 'rgb(var(--foreground-rgb))',
+          backgroundColor: 'rgb(var(--surface-rgb))',
+        } as React.CSSProperties
+      }
+    />
+  )
 }
 
 export function Card({ className, children }: { className?: string; children: React.ReactNode }) {

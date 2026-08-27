@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Send } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { Alert, Button, Card } from '@/components/ui'
+import { Alert, Button, Card, Input } from '@/components/ui'
 
 export type CoachMessage = {
   id: string
@@ -163,12 +163,12 @@ export function CoachChat({ initialMessages }: { initialMessages: CoachMessage[]
         }}
         className="flex gap-2"
       >
-        <input
+        <Input
           value={input}
           onChange={(e) => setInput(e.target.value)}
           placeholder="Escribí tu pregunta…"
           maxLength={2000}
-          className="flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-slate-900 focus:outline-none focus:ring-1 focus:ring-slate-900"
+          className="flex-1"
         />
         <Button type="submit" loading={sending} disabled={!input.trim()}>
           <Send aria-hidden className="h-4 w-4" />

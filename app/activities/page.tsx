@@ -119,17 +119,17 @@ export default async function ActivitiesPage({
       <div className="space-y-2">
         {activities?.map((activity) => (
           <Link key={activity.id} href={`/activities/${activity.id}`} className="block">
-            <Card className="p-4 transition hover:bg-slate-50 cursor-pointer">
+            <Card className="p-4 transition hover:brightness-95 cursor-pointer">
               <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <h2 className="font-medium">
+                <h2 className="font-medium text-foreground">
                   {activity.title ?? 'Sin título'}
                   {activity.source === 'manual' && (
-                    <span className="ml-2 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-500">
+                    <span className="ml-2 rounded bg-white/5 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted">
                       CSV
                     </span>
                   )}
                 </h2>
-                <time className="text-xs text-slate-500" dateTime={activity.start_time}>
+                <time className="text-xs text-muted" dateTime={activity.start_time}>
                   {new Date(activity.start_time).toLocaleString('es-AR')}
                 </time>
               </div>
@@ -187,7 +187,7 @@ function PageLink({
 }) {
   if (disabled) {
     return (
-      <span className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-300">
+      <span className="inline-flex items-center gap-1 rounded-md border border-surface px-3 py-2 text-sm text-muted">
         {children}
       </span>
     )
@@ -196,7 +196,7 @@ function PageLink({
   return (
     <Link
       href={`/activities?page=${page}`}
-      className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium hover:bg-slate-50"
+      className="inline-flex items-center gap-1 rounded-md border border-surface bg-surface px-3 py-2 text-sm font-medium hover:brightness-95"
     >
       {children}
     </Link>
@@ -206,8 +206,8 @@ function PageLink({
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <dt className="text-xs uppercase tracking-wide text-slate-400">{label}</dt>
-      <dd className="font-medium text-slate-800">{value}</dd>
+      <dt className="text-xs uppercase tracking-wide text-muted">{label}</dt>
+      <dd className="font-medium text-foreground">{value}</dd>
     </div>
   )
 }

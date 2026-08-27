@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { Alert, Button, Field, Input } from '@/components/ui'
+import { Alert, Button, Field, Input, Card } from '@/components/ui'
 
 type Mode = 'signIn' | 'signUp'
 
@@ -39,6 +39,9 @@ export function AuthForm() {
 
     setLoading(true)
     try {
+      // Allow signing in with either email or username.
+      const identifier = email.trim()
+
       if (isSignUp) {
         const { data, error: signUpError } = await supabase.auth.signUp({
           email,
@@ -57,7 +60,25 @@ export function AuthForm() {
           return
         }
       } else {
-        const { error: signInError } = await supabase.auth.signInWithPassword({ email, password })
+        // If user entered a username (no @), resolve it to an email via server resolver.
+        let loginEmail = identifier
+        if (!identifier.includes('@')) {
+          const res = await fetch('/api/auth/resolve', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ identifier }),
+          })
+          const body = await res.json().catch(() => ({}))
+          if (!res.ok) {
+            throw new Error(body.error ?? 'Usuario no encontrado.')
+          }
+          loginEmail = body.email
+        }
+
+        const { error: signInError } = await supabase.auth.signInWithPassword({
+          email: loginEmail,
+          password,
+        })
         if (signInError) throw signInError
       }
 
@@ -77,8 +98,9 @@ export function AuthForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4 rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
-      <h2 className="text-xl font-bold">{isSignUp ? 'Crear cuenta' : 'Iniciar sesión'}</h2>
+    <Card>
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <h2 className="text-xl font-bold text-foreground">{isSignUp ? 'Crear cuenta' : 'Iniciar sesión'}</h2>
 
       {isSignUp && (
         <Field label="Nombre">
@@ -86,12 +108,12 @@ export function AuthForm() {
         </Field>
       )}
 
-      <Field label="Email">
+      <Field label={isSignUp ? 'Email' : 'Email o usuario'} hint={isSignUp ? undefined : 'Podés ingresar tu nombre de usuario sin @'}>
         <Input
-          type="email"
+          type={isSignUp ? 'email' : 'text'}
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          autoComplete="email"
+          autoComplete={isSignUp ? 'email' : 'username'}
           required
         />
       </Field>
@@ -114,13 +136,14 @@ export function AuthForm() {
         {isSignUp ? 'Registrarse' : 'Entrar'}
       </Button>
 
-      <button
-        type="button"
-        onClick={switchMode}
-        className="text-sm text-slate-600 underline hover:text-slate-900"
-      >
+        <button
+          type="button"
+          onClick={switchMode}
+          className="text-sm text-muted underline hover:text-foreground"
+        >
         {isSignUp ? 'Ya tengo cuenta' : 'Crear cuenta'}
       </button>
-    </form>
+      </form>
+    </Card>
   )
 }
