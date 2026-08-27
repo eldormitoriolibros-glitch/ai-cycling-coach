@@ -118,7 +118,7 @@ export default async function ActivitiesPage({
 
       <div className="space-y-2">
         {activities?.map((activity) => (
-          <Link key={activity.id} href={`/activities/${activity.id}`}>
+          <Link key={activity.id} href={`/activities/${activity.id}`} className="block">
             <Card className="p-4 transition hover:bg-slate-50 cursor-pointer">
               <div className="flex flex-wrap items-baseline justify-between gap-2">
                 <h2 className="font-medium">

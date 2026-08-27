@@ -27,15 +27,47 @@ export default async function PowerPage() {
     data: { user },
   } = await supabase.auth.getUser()
 
-  const [summary, { data: metrics }, { count: estimatedOnly }] = await Promise.all([
-    loadPowerSummary(user!.id),
-    supabase.from('athlete_metrics').select('ftp, ftp_source, ftp_updated_at').eq('user_id', user!.id).maybeSingle(),
-    supabase
-      .from('activities')
-      .select('id', { count: 'exact', head: true })
-      .eq('user_id', user!.id)
-      .eq('streams_status', 'no_power'),
-  ])
+  // Guard against unauthenticated access and surface errors instead of crashing
+  if (!user) {
+    return (
+      <div className="space-y-4">
+        <h1 className="text-2xl font-bold">Potencia</h1>
+        <Card>
+          <p className="text-sm text-slate-600">Debés iniciar sesión para ver esta página.</p>
+        </Card>
+      </div>
+    )
+  }
+
+  let summary = null
+  let metrics = null
+  let estimatedOnly = 0
+  try {
+    const results = await Promise.all([
+      loadPowerSummary(user.id),
+      supabase.from('athlete_metrics').select('ftp, ftp_source, ftp_updated_at').eq('user_id', user.id).maybeSingle(),
+      supabase
+        .from('activities')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', user.id)
+        .eq('streams_status', 'no_power'),
+    ])
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+    summary = results[0]
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+    metrics = results[1].data
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+    estimatedOnly = results[2].count ?? 0
+  } catch (err) {
+    return (
+      <div className="space-y-4">
+        <h1 className="text-2xl font-bold">Potencia</h1>
+        <Card>
+          <Alert variant="error">No se pudo cargar la curva de potencia. Volvé a intentarlo más tarde.</Alert>
+        </Card>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-4">

@@ -33,6 +33,8 @@ export function StravaCard({
       const endpoint = action === 'disconnect' ? 'disconnect' : 'sync'
       const response = await fetch(`/api/strava/${endpoint}`, {
         method: 'POST',
+        // ensure same-site cookies are sent so the server can authenticate the user
+        credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ full: action === 'resync' }),
       })
