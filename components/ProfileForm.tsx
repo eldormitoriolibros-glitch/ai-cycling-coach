@@ -85,7 +85,7 @@ export function ProfileForm() {
         if (metricsResult.error) throw metricsResult.error
         if (cancelled) return
 
-        const profile = profileResult.data
+        const profile = profileResult.data as any
         const metrics = metricsResult.data
 
         setForm({
@@ -131,6 +131,8 @@ export function ProfileForm() {
     try {
       const { error: profileError } = await supabase
         .from('users')
+        // cast update payload to any because generated DB types may not include the
+        // newly-added `username` column until types are refreshed.
         .update({
           name: form.name.trim() || null,
           username: form.username ? form.username.toLowerCase() : null,
@@ -140,7 +142,7 @@ export function ProfileForm() {
           height_cm: parseFloatOrNull(form.height),
           experience_level: (form.experienceLevel || null) as ExperienceLevel | null,
           timezone: form.timezone || 'UTC',
-        })
+        } as any)
         .eq('id', userId)
       if (profileError) throw profileError
 
