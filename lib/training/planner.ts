@@ -61,7 +61,7 @@ export type PlanDraft = {
 const DAY_NAMES = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado']
 
 /** `intensityFactor` drives the load estimate; `powerFactor` is the interval target. */
-const TEMPLATES: Record<
+export const TEMPLATES: Record<
   SessionKind,
   {
     zone: string
@@ -140,7 +140,7 @@ const TEMPLATES: Record<
   },
 }
 
-function loadFor(minutes: number, intensityFactor: number): number {
+export function loadFor(minutes: number, intensityFactor: number): number {
   return Math.round((minutes / 60) * intensityFactor ** 2 * 100)
 }
 

@@ -1,7 +1,9 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { formatDistance, formatDuration } from '@/lib/utils'
-import { addDays } from '@/lib/training/dates'
+import { addDays, localDateKey } from '@/lib/training/dates'
 import { buildRecentActivityInsights } from './activity-insights'
+import { loadPowerSummary } from '@/lib/training/ftp'
+import { formatLoadSeries, formatPowerContext, formatExecution } from './execution'
 
 import 'server-only'
 
@@ -14,27 +16,28 @@ const DAYS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', '
 export async function buildAthleteContext(userId: string): Promise<string> {
   const supabase = createAdminClient()
 
-  const [profile, metrics, availability, load, activities, workouts, recovery, sleep] =
+  const [profile, metrics, availability, loadSeries, activities, workouts, recovery, sleep, planWeek] =
     await Promise.all([
       supabase.from('users').select('*').eq('id', userId).maybeSingle(),
       supabase.from('athlete_metrics').select('*').eq('user_id', userId).maybeSingle(),
       supabase.from('availability').select('*').eq('user_id', userId),
       supabase
         .from('training_load')
-        .select('date, chronic_load, acute_load, form, ramp_rate')
+        .select('date, daily_load, chronic_load, acute_load, form, ramp_rate')
         .eq('user_id', userId)
         .order('date', { ascending: false })
-        .limit(1)
-        .maybeSingle(),
+        .limit(15),
       supabase
         .from('activities')
-        .select('start_time, title, sport_type, distance_meters, moving_seconds, avg_power, avg_hr, training_load')
+        .select(
+          'start_time, title, sport_type, distance_meters, moving_seconds, avg_power, normalized_power, intensity_factor, avg_hr, max_hr, avg_cadence, elevation_gain_meters, is_trainer, training_load'
+        )
         .eq('user_id', userId)
         .order('start_time', { ascending: false })
         .limit(10),
       supabase
         .from('workouts')
-        .select('scheduled_date, title, workout_type, duration_minutes, status')
+        .select('scheduled_date, title, workout_type, duration_minutes, status, target_zone, target_power, target_hr, purpose, completed_activity_id')
         .eq('user_id', userId)
         .gte('scheduled_date', addDays(new Date().toISOString().slice(0, 10), -10))
         .order('scheduled_date', { ascending: true })
@@ -51,12 +54,30 @@ export async function buildAthleteContext(userId: string): Promise<string> {
         .eq('user_id', userId)
         .order('date', { ascending: false })
         .limit(7),
+      supabase
+        .from('plan_weeks')
+        .select('start_date, end_date, emphasis, block_position, target_load, planned_load')
+        .eq('user_id', userId)
+        .order('start_date', { ascending: false })
+        .limit(1)
+        .maybeSingle(),
     ])
+
+  const powerSummary = await loadPowerSummary(userId)
 
   const p = profile.data
   const m = metrics.data
+  const load = loadSeries.data
+  const plan = planWeek.data
 
   const lines: string[] = []
+
+  const tz = p?.timezone || 'UTC'
+  const todayIso = new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(new Date())
+  const weekday = new Intl.DateTimeFormat('es-AR', { timeZone: tz, weekday: 'long' }).format(new Date())
+  lines.push('## Hoy')
+  lines.push(`fecha: ${todayIso} (${weekday}). Usá esta fecha como referencia para "hoy", "mañana" y los días de la semana.`)
+  lines.push('')
 
   lines.push('## Atleta')
   lines.push(
@@ -106,25 +127,31 @@ export async function buildAthleteContext(userId: string): Promise<string> {
   }
 
   lines.push('')
+  // Carga series (last 14 days + 7d comparison)
   lines.push('## Carga de entrenamiento (calculada por la app)')
-  if (load.data) {
-    lines.push(
-      `fecha: ${load.data.date}, fitness/CTL: ${fmt(load.data.chronic_load)}, fatiga/ATL: ${fmt(load.data.acute_load)}, forma/TSB: ${fmt(load.data.form)}, rampa 7d: ${fmt(load.data.ramp_rate)}`
-    )
-  } else {
-    lines.push('sin datos suficientes')
-  }
+  lines.push(...formatLoadSeries(load ?? [], todayIso))
 
   lines.push('')
   lines.push('## Últimas 10 actividades')
   if (activities.data?.length) {
     for (const a of activities.data) {
-      lines.push(
-        `- ${a.start_time.slice(0, 10)} · ${a.title ?? a.sport_type ?? 'actividad'} · ${formatDistance(a.distance_meters)} · ${formatDuration(a.moving_seconds)}` +
-          (a.avg_power ? ` · ${Math.round(a.avg_power)} W` : '') +
-          (a.avg_hr ? ` · ${a.avg_hr} ppm` : '') +
-          (a.training_load ? ` · carga ${a.training_load}` : '')
-      )
+      const date = localDateKey(a.start_time, tz)
+      const parts = [
+        `${date} · ${a.title ?? a.sport_type ?? 'actividad'}`,
+        formatDistance(a.distance_meters),
+        formatDuration(a.moving_seconds),
+      ]
+      if (a.avg_power) parts.push(`${Math.round(a.avg_power)} W`)
+      if (a.normalized_power) parts.push(`NP ${Math.round(a.normalized_power)} W`)
+      if (typeof a.intensity_factor === 'number') parts.push(`IF ${a.intensity_factor.toFixed(2)}`)
+      if (a.avg_hr) parts.push(`${a.avg_hr} ppm`)
+      if (a.max_hr) parts.push(`máx ${a.max_hr} ppm`)
+      if (a.avg_cadence) parts.push(`cad ${Math.round(a.avg_cadence)}`)
+      if (a.elevation_gain_meters) parts.push(`+${Math.round(a.elevation_gain_meters)} m`)
+      if (a.is_trainer) parts.push('indoor')
+      if (a.training_load) parts.push(`carga ${Math.round(a.training_load)}`)
+
+      lines.push(`- ${parts.join(' · ')}`)
     }
   } else {
     lines.push('- ninguna sincronizada todavía')
@@ -136,8 +163,12 @@ export async function buildAthleteContext(userId: string): Promise<string> {
     const today = new Date().toISOString().slice(0, 10)
     for (const w of workouts.data) {
       const when = w.scheduled_date < today ? 'pasado' : w.scheduled_date === today ? 'hoy' : 'futuro'
+      const extras = []
+      if (w.target_zone) extras.push(w.target_zone)
+      if (w.target_power) extras.push(`${w.target_power} W`)
+      if (w.target_hr) extras.push(`${w.target_hr} ppm`)
       lines.push(
-        `- ${w.scheduled_date} (${when}) · ${w.title ?? w.workout_type ?? 'sesión'} · ${w.duration_minutes ?? '?'} min · estado: ${w.status}`
+        `- ${w.scheduled_date} (${when}) · ${w.title ?? w.workout_type ?? 'sesión'} · ${w.duration_minutes ?? '?'} min${extras.length ? ' · ' + extras.join(' / ') : ''} · estado: ${w.status}`
       )
     }
   }
@@ -167,6 +198,26 @@ export async function buildAthleteContext(userId: string): Promise<string> {
       if (parts.length) lines.push(`- ${date}: ${parts.join(', ')}`)
     }
   }
+  // Current plan week (if any)
+  if (plan) {
+    lines.push('')
+    lines.push('## Bloque actual')
+    lines.push(
+      `semana ${plan.start_date} a ${plan.end_date} · ${plan.emphasis} · posición ${plan.block_position} de 4 · objetivo ${Math.round(
+        Number(plan.target_load ?? 0)
+      )} · planificado ${Math.round(Number(plan.planned_load ?? 0))}`
+    )
+  }
+
+  // Prescripto vs ejecutado (últimos 7 días)
+  lines.push('')
+  lines.push('## Prescripto vs ejecutado (últimos 7 días)')
+  lines.push(...formatExecution(workouts.data ?? [], activities.data ?? [], tz, todayIso))
+
+  // Power summary (90 days)
+  lines.push('')
+  lines.push('## Curva de potencia (90 días)')
+  lines.push(...formatPowerContext(powerSummary ?? null, m?.ftp ?? null))
 
   lines.push(await buildRecentActivityInsights(userId, m?.max_hr ?? null, m?.ftp ?? null))
 

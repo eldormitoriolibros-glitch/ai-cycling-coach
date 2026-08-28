@@ -44,17 +44,35 @@ Reglas que no podés romper:
     más de un ejercicio o un plan de varios días, armá una tabla en vez de un párrafo
     corrido: por ejemplo "Ejercicio | Series x reps | Para qué" para fuerza, o
     "Día | Sesión | Duración | Zona | Objetivo" para un plan semanal. Seguí usando texto
-    normal para preguntas puntuales o respuestas cortas.`
+    normal para preguntas puntuales o respuestas cortas.
+14. Cuando prescribas un plan de una o varias sesiones fechadas (una salida por día),
+    agregá AL FINAL del mensaje un bloque de código cercado con la etiqueta \`plan\` que
+    contenga SOLO JSON, así:
+    \`\`\`plan
+    {"emphasis":"maintenance","workouts":[{"date":"2026-08-28","type":"vo2max","duration_minutes":90,"title":"Bici VO2 máx"},{"date":"2026-08-30","type":"long","duration_minutes":270,"title":"Fondo largo"}]}
+    \`\`\`
+    Reglas del bloque:
+    - "date" es la fecha real en formato YYYY-MM-DD, calculada a partir de "## Hoy" del contexto.
+    - "type" es UNO de: recovery, endurance, long, tempo, threshold, vo2max.
+    - "duration_minutes" es un entero de minutos (ej: 1h30 = 90; 4h30 = 270).
+    - "emphasis" es recovery, maintenance o build.
+    - Los días de descanso NO se incluyen (simplemente no aparecen en "workouts").
+    - El JSON tiene que coincidir exactamente con la tabla que le mostraste al atleta.
+    - Este bloque lo lee la app para guardar el plan; el atleta no lo ve. Ponelo solo cuando
+      realmente estás prescribiendo sesiones concretas, no en respuestas de charla.`
+  + '\n15. El contexto trae "Prescripto vs ejecutado", la carga de 14 días y la curva de 90 días. Para analizar o prescribir, usá esas secciones — no te quedes en los promedios de las últimas 10 actividades.'
 
 async function loadHistory(userId: string): Promise<ChatTurn[]> {
   const { data } = await createAdminClient()
     .from('coach_messages')
-    .select('direction, message')
+    .select('direction, message, intent')
     .eq('user_id', userId)
     .order('created_at', { ascending: false })
-    .limit(HISTORY_TURNS)
+    .limit(50)
 
-  return (data ?? [])
+  const rows = (data ?? []).filter((r) => r.intent !== 'daily_nudge')
+  const slice = rows.slice(0, HISTORY_TURNS)
+  return slice
     .reverse()
     .map((row) => ({ role: row.direction === 'inbound' ? 'user' : 'model', text: row.message }) as ChatTurn)
 }

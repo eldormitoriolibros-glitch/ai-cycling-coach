@@ -1,7 +1,15 @@
 import { generateReply, isAiConfigured } from '@/lib/ai/gemini'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { addDays } from './dates'
-import { BLOCK_LENGTH, buildWeeklyPlan, type PlanDraft } from './planner'
+import {
+  BLOCK_LENGTH,
+  buildWeeklyPlan,
+  loadFor,
+  TEMPLATES,
+  type PlanDraft,
+  type SessionKind,
+  type WorkoutDraft,
+} from './planner'
 
 import 'server-only'
 
@@ -97,6 +105,107 @@ export async function proposeWeeklyPlan(userId: string, startDate?: string): Pro
     rationale: await explain(draft),
     replacesExisting: count ?? 0,
   }
+}
+
+/** One session as emitted by the coach's structured `plan` block. */
+export type CoachSession = {
+  date: string
+  type: string
+  duration_minutes: number
+  title?: string
+  description?: string
+  target_zone?: string
+}
+
+export type CoachPlanInput = {
+  emphasis?: 'recovery' | 'maintenance' | 'build'
+  workouts: CoachSession[]
+}
+
+const SESSION_KINDS: SessionKind[] = [
+  'recovery',
+  'endurance',
+  'long',
+  'tempo',
+  'threshold',
+  'vo2max',
+]
+
+function clampMinutes(value: unknown): number {
+  const n = typeof value === 'number' ? value : Number.parseInt(String(value ?? ''), 10)
+  if (!Number.isFinite(n)) return 60
+  return Math.min(600, Math.max(15, Math.round(n)))
+}
+
+/**
+ * Turns the coach's own structured plan (what it showed the athlete) into a
+ * full, validated draft — verbatim. Zone, power/HR targets and training load
+ * are derived deterministically from the session templates, so the numbers
+ * stay consistent with the rest of the app without the coach having to invent
+ * them.
+ */
+export async function coachPlanToDraft(userId: string, plan: CoachPlanInput): Promise<PlanProposal> {
+  const supabase = createAdminClient()
+
+  const { data: metrics } = await supabase
+    .from('athlete_metrics')
+    .select('ftp, max_hr')
+    .eq('user_id', userId)
+    .maybeSingle()
+
+  const ftp = metrics?.ftp ?? null
+  const maxHr = metrics?.max_hr ?? null
+
+  const sessions = (plan.workouts ?? [])
+    .filter((w) => w && /^\d{4}-\d{2}-\d{2}$/.test(String(w.date)))
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .slice(0, 7)
+
+  const workouts: WorkoutDraft[] = sessions.map((w) => {
+    const kind: SessionKind = (SESSION_KINDS as string[]).includes(w.type)
+      ? (w.type as SessionKind)
+      : 'endurance'
+    const template = TEMPLATES[kind]
+    const minutes = clampMinutes(w.duration_minutes)
+
+    return {
+      scheduled_date: w.date,
+      workout_type: kind,
+      title: (w.title?.trim() || template.title).slice(0, 120),
+      description: (w.description?.trim() || template.description).slice(0, 1000),
+      duration_minutes: minutes,
+      target_zone: (w.target_zone?.trim() || template.zone).slice(0, 20),
+      target_power: ftp ? Math.round(ftp * template.powerFactor) : null,
+      target_hr: maxHr ? Math.round(maxHr * template.hrFactor) : null,
+      purpose: template.purpose,
+      estimated_load: loadFor(minutes, template.intensityFactor),
+    }
+  })
+
+  const startDate = workouts.length ? workouts[0].scheduled_date : tomorrowIn('UTC')
+  const endDate = workouts.length ? workouts[workouts.length - 1].scheduled_date : startDate
+  const plannedLoad = workouts.reduce((sum, w) => sum + w.estimated_load, 0)
+
+  const draft: PlanDraft = {
+    startDate,
+    endDate,
+    emphasis: plan.emphasis ?? 'maintenance',
+    blockPosition: 1,
+    weeklyTargetLoad: plannedLoad,
+    plannedLoad,
+    workouts,
+    notes: [],
+  }
+
+  const { count } = await supabase
+    .from('workouts')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', userId)
+    .eq('status', 'scheduled')
+    .gte('scheduled_date', draft.startDate)
+    .lte('scheduled_date', draft.endDate)
+
+  return { draft, rationale: null, replacesExisting: count ?? 0 }
 }
 
 async function explain(draft: PlanDraft): Promise<string | null> {

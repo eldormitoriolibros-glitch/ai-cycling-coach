@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
-import { commitWeeklyPlan, proposeWeeklyPlan } from '@/lib/training/plan-service'
+import { coachPlanToDraft, commitWeeklyPlan, proposeWeeklyPlan } from '@/lib/training/plan-service'
 import { createClient } from '@/lib/supabase/server'
 
 export const dynamic = 'force-dynamic'
@@ -32,8 +32,25 @@ const draftSchema = z.object({
   notes: z.array(z.string().max(500)).max(20),
 })
 
+const coachPlanSchema = z.object({
+  emphasis: z.enum(['recovery', 'maintenance', 'build']).optional(),
+  workouts: z
+    .array(
+      z.object({
+        date: isoDate,
+        type: z.string().max(20),
+        duration_minutes: z.number(),
+        title: z.string().max(200).optional(),
+        description: z.string().max(1000).optional(),
+        target_zone: z.string().max(20).optional(),
+      })
+    )
+    .max(14),
+})
+
 const bodySchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('propose'), startDate: isoDate.optional() }),
+  z.object({ action: z.literal('coach_preview'), plan: coachPlanSchema }),
   z.object({
     action: z.literal('commit'),
     draft: draftSchema,
@@ -62,6 +79,13 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: 'No se pudo identificar el usuario.' }, { status: 400 })
       }
       return NextResponse.json(await proposeWeeklyPlan(user.id, parsed.data.startDate))
+    }
+
+    if (parsed.data.action === 'coach_preview') {
+      if (!user.id) {
+        return NextResponse.json({ error: 'No se pudo identificar el usuario.' }, { status: 400 })
+      }
+      return NextResponse.json(await coachPlanToDraft(user.id, parsed.data.plan))
     }
 
     if (!user.id) {
