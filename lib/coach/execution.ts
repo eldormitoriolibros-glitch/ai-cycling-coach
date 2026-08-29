@@ -2,10 +2,10 @@
  * Pure helpers for coach context formatting.
  * No DB, no server-only imports. Returns arrays of text lines (no trailing blank lines).
  */
-import { addDays, localDateKey } from '@/lib/training/dates'
+import { addDays, dayOfWeek, localDateKey } from '@/lib/training/dates'
 import { formatDuration } from '@/lib/utils'
 import type { PowerSummary } from '@/lib/training/ftp'
-import { TEMPLATES } from '@/lib/training/planner'
+import { TEMPLATES } from '@/lib/training/planner2'
 
 export type LoadPoint = {
   date: string
@@ -181,5 +181,179 @@ export function formatExecution(
   }
 
   return out.length ? out : ['- ninguna sesión prescripta en los últimos 7 días']
+}
+
+/** Weeks of history the coach uses to see full 4-week blocks (3 mesocycles). */
+export const CYCLE_LOOKBACK_WEEKS = 12
+export const BLOCK_LENGTH_WEEKS = 4
+
+export type CycleActivity = {
+  start_time: string
+  distance_meters: number | null
+  moving_seconds: number | null
+  duration_seconds: number | null
+  training_load: number | null
+}
+
+export type CyclePlanWeek = {
+  start_date: string
+  emphasis: string | null
+  block_position: number | null
+}
+
+/** Monday (`YYYY-MM-DD`) of the ISO-style week that contains `date`. */
+export function mondayOf(date: string): string {
+  const dow = dayOfWeek(date)
+  const offset = dow === 0 ? 6 : dow - 1
+  return addDays(date, -offset)
+}
+
+/**
+ * Compact lun–dom rollup so the coach can place rest weeks.
+ *
+ * A week is "liviana" when its load is below 70% of the mean of the previous
+ * three weeks that had load. After three consecutive loading weeks the next
+ * one should be recovery.
+ *
+ * @example
+ * formatCycleHistory(
+ *   [{ date: '2026-08-24', daily_load: 80, chronic_load: 50, acute_load: 60, form: -10, ramp_rate: 2 }],
+ *   [{ start_time: '2026-08-25T10:00:00Z', distance_meters: 40000, moving_seconds: 5400, duration_seconds: 5400, training_load: 80 }],
+ *   'America/Argentina/Buenos_Aires',
+ *   '2026-08-29'
+ * )[0]
+ * // '## Ciclos (12 semanas, lun–dom)'
+ */
+export function formatCycleHistory(
+  load: LoadPoint[] | null | undefined,
+  activities: CycleActivity[] | null | undefined,
+  timeZone: string,
+  today: string,
+  planWeeks: CyclePlanWeek[] | null | undefined = []
+): string[] {
+  const thisMonday = mondayOf(today)
+  const weekStarts: string[] = []
+  for (let i = CYCLE_LOOKBACK_WEEKS - 1; i >= 0; i--) {
+    weekStarts.push(addDays(thisMonday, -7 * i))
+  }
+
+  const loadByDate = new Map((load ?? []).map((p) => [p.date, p]))
+  const planByMonday = new Map((planWeeks ?? []).map((w) => [mondayOf(w.start_date), w]))
+
+  const actsByWeek = new Map<string, CycleActivity[]>()
+  for (const a of activities ?? []) {
+    const key = mondayOf(localDateKey(a.start_time, timeZone))
+    const arr = actsByWeek.get(key) ?? []
+    arr.push(a)
+    actsByWeek.set(key, arr)
+  }
+
+  type WeekRow = {
+    start: string
+    end: string
+    rides: number
+    km: number
+    seconds: number
+    load: number
+    ctl: number | null
+    tsb: number | null
+    emphasis: string | null
+    position: number | null
+  }
+
+  const rows: WeekRow[] = weekStarts.map((start) => {
+    const end = addDays(start, 6)
+    let dailySum = 0
+    let ctl: number | null = null
+    let tsb: number | null = null
+    for (let d = 0; d < 7; d++) {
+      const key = addDays(start, d)
+      const point = loadByDate.get(key)
+      if (!point) continue
+      dailySum += Number(point.daily_load ?? 0) || 0
+      if (point.chronic_load != null) ctl = point.chronic_load
+      if (point.form != null) tsb = point.form
+    }
+
+    const weekActs = actsByWeek.get(start) ?? []
+    const actLoad = weekActs.reduce((s, a) => s + (a.training_load ?? 0), 0)
+    const plan = planByMonday.get(start)
+
+    return {
+      start,
+      end,
+      rides: weekActs.length,
+      km: weekActs.reduce((s, a) => s + (a.distance_meters ?? 0), 0) / 1000,
+      seconds: weekActs.reduce((s, a) => s + (a.moving_seconds ?? a.duration_seconds ?? 0), 0),
+      load: Math.round(dailySum > 0 ? dailySum : actLoad),
+      ctl,
+      tsb,
+      emphasis: plan?.emphasis ?? null,
+      position: plan?.block_position ?? null,
+    }
+  })
+
+  const withLoad = rows.filter((r) => r.load > 0 || r.rides > 0)
+  if (!withLoad.length) return ['sin datos suficientes para armar ciclos']
+
+  const lightFlags = rows.map((row, i) => {
+    const prev = rows.slice(Math.max(0, i - 3), i).filter((r) => r.load > 0)
+    if (prev.length < 2 || row.load <= 0) return row.load <= 0 && row.rides === 0
+    const mean = prev.reduce((s, r) => s + r.load, 0) / prev.length
+    return row.load < mean * 0.7
+  })
+
+  let consecutiveLoading = 0
+  for (let i = rows.length - 1; i >= 0; i--) {
+    if (rows[i].load <= 0 && rows[i].rides === 0) continue
+    if (lightFlags[i]) break
+    consecutiveLoading++
+  }
+
+  const lastLight = [...rows].reverse().find((r, idx) => {
+    const i = rows.length - 1 - idx
+    return lightFlags[i] && (r.load > 0 || r.rides > 0)
+  })
+
+  const lines: string[] = [
+    '## Ciclos (12 semanas, lun–dom)',
+    'Cada ciclo es de 4 semanas (3 de carga + 1 de descarga). Usá esto para saber cuándo programar descanso.',
+  ]
+
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i]
+    if (r.load <= 0 && r.rides === 0) continue
+    const hours = r.seconds > 0 ? `${Math.floor(r.seconds / 3600)}h ${Math.floor((r.seconds % 3600) / 60)}m` : '0h'
+    const kmLabel = r.km >= 100 ? `${Math.round(r.km)} km` : `${r.km.toFixed(1)} km`
+    const extras = [
+      r.ctl != null ? `CTL ${Math.round(r.ctl)}` : null,
+      r.tsb != null ? `TSB ${Math.round(r.tsb)}` : null,
+      r.emphasis ? `plan: ${r.emphasis}${r.position ? ` (${r.position}/4)` : ''}` : null,
+      lightFlags[i] ? 'liviana' : null,
+    ].filter(Boolean)
+    lines.push(
+      `- ${r.start} a ${r.end.slice(8)}: ${r.rides} salidas · ${kmLabel} · ${hours} · carga ${r.load}${
+        extras.length ? ` · ${extras.join(' · ')}` : ''
+      }`
+    )
+  }
+
+  const lastLightLabel = lastLight ? `${lastLight.start} a ${lastLight.end.slice(8)}` : 'ninguna en estas 12 semanas'
+  lines.push(`semanas de carga seguidas desde la última liviana: ${consecutiveLoading}`)
+  lines.push(`última semana liviana: ${lastLightLabel}`)
+
+  if (consecutiveLoading >= 3) {
+    lines.push(
+      `sugerencia: van ${consecutiveLoading} semanas de carga. La próxima debería ser de descanso (ciclo de 4 semanas).`
+    )
+  } else if (consecutiveLoading === 2) {
+    lines.push('sugerencia: van 2 semanas de carga; la siguiente puede seguir cargando si el atleta está fresco, o bajar si hay fatiga.')
+  } else if (consecutiveLoading === 1) {
+    lines.push('sugerencia: recién se retomó la carga. Todavía no toca descarga por ciclo.')
+  } else {
+    lines.push('sugerencia: la semana actual o la anterior fue liviana. Se puede volver a cargar.')
+  }
+
+  return lines
 }
 

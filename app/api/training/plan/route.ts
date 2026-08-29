@@ -10,7 +10,7 @@ const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
 
 const workoutSchema = z.object({
   scheduled_date: isoDate,
-  workout_type: z.enum(['recovery', 'endurance', 'long', 'tempo', 'threshold', 'vo2max']),
+  workout_type: z.enum(['recovery', 'endurance', 'long', 'tempo', 'threshold', 'vo2max', 'strength']),
   title: z.string().min(1).max(120),
   description: z.string().max(1000),
   duration_minutes: z.number().int().min(15).max(600),
@@ -28,7 +28,7 @@ const draftSchema = z.object({
   blockPosition: z.number().int().min(1).max(8),
   weeklyTargetLoad: z.number().min(0),
   plannedLoad: z.number().min(0),
-  workouts: z.array(workoutSchema).max(7),
+  workouts: z.array(workoutSchema).max(14),
   notes: z.array(z.string().max(500)).max(20),
 })
 

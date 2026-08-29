@@ -9,7 +9,8 @@ export type Json = string | number | boolean | null | { [key: string]: Json | un
 export type ExperienceLevel = 'beginner' | 'intermediate' | 'advanced'
 export type Sex = 'male' | 'female' | 'other'
 export type Locale = 'es' | 'en'
-export type ActivitySource = 'strava' | 'manual'
+export type ActivitySource = 'strava' | 'manual' | 'garmin'
+export type BackfillStatus = 'idle' | 'running' | 'done' | 'error'
 export type ConnectionStatus = 'connected' | 'expired' | 'revoked' | 'error'
 export type SyncTrigger = 'manual' | 'webhook' | 'cron'
 export type SyncStatus = 'success' | 'partial' | 'error'
@@ -48,6 +49,14 @@ export type ActivityRow = {
   max_cadence: number | null
   avg_speed: number | null
   max_speed: number | null
+  avg_temperature: number | null
+  max_temperature: number | null
+  training_effect_aerobic: number | null
+  training_effect_anaerobic: number | null
+  avg_respiration_rate: number | null
+  calories: number | null
+  sweat_loss_ml: number | null
+  garmin_training_load: number | null
   training_load: number | null
   intensity_factor: number | null
   perceived_exertion: number | null
@@ -209,7 +218,28 @@ type RecoveryMetricsRow = {
   soreness: number | null
   motivation: number | null
   recovery_status: string | null
+  body_battery_high: number | null
+  body_battery_low: number | null
+  spo2_avg: number | null
+  vo2max_cycling: number | null
   created_at: string
+}
+
+type GarminConnectionRow = {
+  user_id: string
+  garmin_email: string
+  tokens_encrypted: string
+  last_sync_at: string | null
+  last_sync_error: string | null
+  sync_enabled: boolean
+  backfill_status: BackfillStatus
+  backfill_cursor: number
+  backfill_processed: number
+  backfill_error: string | null
+  backfill_started_at: string | null
+  backfill_finished_at: string | null
+  created_at: string
+  updated_at: string
 }
 
 /** Insert type: generated columns and defaulted columns become optional. */
@@ -291,6 +321,12 @@ export interface Database {
         Row: RecoveryMetricsRow
         Insert: Insert<RecoveryMetricsRow, 'user_id' | 'date'>
         Update: Partial<RecoveryMetricsRow>
+        Relationships: []
+      }
+      garmin_connections: {
+        Row: GarminConnectionRow
+        Insert: Insert<GarminConnectionRow, 'user_id' | 'garmin_email' | 'tokens_encrypted'>
+        Update: Partial<GarminConnectionRow>
         Relationships: []
       }
     }

@@ -9,7 +9,9 @@ import {
   type PlanDraft,
   type SessionKind,
   type WorkoutDraft,
-} from './planner'
+} from './planner2'
+import { computeReadiness } from '@/lib/training/readiness'
+import { splitCombinedSession } from './split-sessions'
 
 import 'server-only'
 
@@ -60,7 +62,7 @@ async function countLoadingWeeks(userId: string, startDate: string): Promise<num
 export async function proposeWeeklyPlan(userId: string, startDate?: string): Promise<PlanProposal> {
   const supabase = createAdminClient()
 
-  const [{ data: profile }, { data: metrics }, { data: availability }, { data: load }] =
+  const [{ data: profile }, { data: metrics }, { data: availability }, { data: load }, { data: recovery }, { data: sleep }] =
     await Promise.all([
       supabase.from('users').select('timezone, experience_level').eq('id', userId).maybeSingle(),
       supabase.from('athlete_metrics').select('ftp, max_hr').eq('user_id', userId).maybeSingle(),
@@ -76,10 +78,40 @@ export async function proposeWeeklyPlan(userId: string, startDate?: string): Pro
         .order('date', { ascending: false })
         .limit(1)
         .maybeSingle(),
+      supabase
+        .from('recovery_metrics')
+        .select('date, resting_hr, hrv, stress, soreness, motivation, body_battery_high, body_battery_low, spo2_avg')
+        .eq('user_id', userId)
+        .order('date', { ascending: false })
+        .limit(7),
+      supabase
+        .from('sleep')
+        .select('date, duration_minutes, sleep_score')
+        .eq('user_id', userId)
+        .order('date', { ascending: false })
+        .limit(7),
     ])
 
   const timeZone = profile?.timezone || 'UTC'
   const start = startDate ?? tomorrowIn(timeZone)
+  const latestRecovery = (recovery ?? []).length ? (recovery as any[])[0] : null
+  const latestSleep = (sleep ?? []).length ? (sleep as any[])[0] : null
+  const baselineResting = (recovery ?? []).length ? (recovery as any[]).reduce((s, r) => s + (r.resting_hr ?? 0), 0) / (recovery as any[]).length : null
+  const baselineHrv = (recovery ?? []).length ? (recovery as any[]).reduce((s, r) => s + (r.hrv ?? 0), 0) / (recovery as any[]).length : null
+  const readinessResult = computeReadiness({
+    form: load?.form ?? null,
+    restingHr: latestRecovery?.resting_hr ?? null,
+    baselineRestingHr: baselineResting ?? null,
+    hrv: latestRecovery?.hrv ?? null,
+    baselineHrv: baselineHrv ?? null,
+    sleepHours: latestSleep?.duration_minutes ? latestSleep.duration_minutes / 60 : null,
+    sleepScore: latestSleep?.sleep_score ?? null,
+    soreness: latestRecovery?.soreness ?? null,
+    motivation: latestRecovery?.motivation ?? null,
+    bodyBattery: (latestRecovery as any)?.body_battery_high ?? null,
+    stressAvg: latestRecovery?.stress ?? null,
+    spo2: (latestRecovery as any)?.spo2_avg ?? null,
+  })
 
   const draft = buildWeeklyPlan({
     startDate: start,
@@ -88,6 +120,7 @@ export async function proposeWeeklyPlan(userId: string, startDate?: string): Pro
     maxHr: metrics?.max_hr ?? null,
     chronicLoad: load?.chronic_load ?? null,
     form: load?.form ?? null,
+    readinessScore: readinessResult.score,
     experience: profile?.experience_level ?? null,
     loadingWeeksInBlock: await countLoadingWeeks(userId, start),
   })
@@ -129,7 +162,30 @@ const SESSION_KINDS: SessionKind[] = [
   'tempo',
   'threshold',
   'vo2max',
+  'strength',
 ]
+
+function expandCoachSessions(sessions: CoachSession[]): CoachSession[] {
+  const out: CoachSession[] = []
+  for (const w of sessions) {
+    const parts = splitCombinedSession(w.title ?? '', w.duration_minutes)
+    if (!parts || parts.length < 2) {
+      out.push(w)
+      continue
+    }
+    for (const part of parts) {
+      out.push({
+        date: w.date,
+        type: part.kind === 'strength' ? 'strength' : w.type,
+        duration_minutes: part.duration_minutes,
+        title: part.title,
+        description: part.kind === 'strength' ? 'Sesión de fuerza, independiente de la bici.' : w.description,
+        target_zone: part.kind === 'strength' ? 'Fuerza' : w.target_zone,
+      })
+    }
+  }
+  return out
+}
 
 function clampMinutes(value: unknown): number {
   const n = typeof value === 'number' ? value : Number.parseInt(String(value ?? ''), 10)
@@ -156,17 +212,22 @@ export async function coachPlanToDraft(userId: string, plan: CoachPlanInput): Pr
   const ftp = metrics?.ftp ?? null
   const maxHr = metrics?.max_hr ?? null
 
-  const sessions = (plan.workouts ?? [])
-    .filter((w) => w && /^\d{4}-\d{2}-\d{2}$/.test(String(w.date)))
-    .sort((a, b) => a.date.localeCompare(b.date))
-    .slice(0, 7)
+  const sessions = expandCoachSessions(
+    (plan.workouts ?? [])
+      .filter((w) => w && /^\d{4}-\d{2}-\d{2}$/.test(String(w.date)))
+      .sort((a, b) => a.date.localeCompare(b.date))
+  ).slice(0, 14)
 
   const workouts: WorkoutDraft[] = sessions.map((w) => {
     const kind: SessionKind = (SESSION_KINDS as string[]).includes(w.type)
       ? (w.type as SessionKind)
-      : 'endurance'
+      : w.type === 'strength'
+        ? 'strength'
+        : 'endurance'
     const template = TEMPLATES[kind]
     const minutes = clampMinutes(w.duration_minutes)
+    const power = kind === 'strength' || !ftp || !template.powerFactor ? null : Math.round(ftp * template.powerFactor)
+    const hr = kind === 'strength' || !maxHr || !template.hrFactor ? null : Math.round(maxHr * template.hrFactor)
 
     return {
       scheduled_date: w.date,
@@ -175,10 +236,10 @@ export async function coachPlanToDraft(userId: string, plan: CoachPlanInput): Pr
       description: (w.description?.trim() || template.description).slice(0, 1000),
       duration_minutes: minutes,
       target_zone: (w.target_zone?.trim() || template.zone).slice(0, 20),
-      target_power: ftp ? Math.round(ftp * template.powerFactor) : null,
-      target_hr: maxHr ? Math.round(maxHr * template.hrFactor) : null,
+      target_power: power,
+      target_hr: hr,
       purpose: template.purpose,
-      estimated_load: loadFor(minutes, template.intensityFactor),
+      estimated_load: kind === 'strength' ? 0 : loadFor(minutes, template.intensityFactor),
     }
   })
 

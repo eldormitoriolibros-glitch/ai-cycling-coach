@@ -1,19 +1,20 @@
 import Link from 'next/link'
-import { Card } from '@/components/ui'
 import { createClient } from '@/lib/supabase/server'
-import { formatDistance, formatDuration } from '@/lib/utils'
+import { WeeklyCalendarStrip } from '@/components/calendar/WeeklyCalendarStrip'
+import { CollapsibleSection } from '@/components/dashboard/CollapsibleSection'
+import { TrainingLoadDashboard } from '@/components/TrainingLoadDashboard'
 
 export const dynamic = 'force-dynamic'
 
 const SECTIONS = [
   { href: '/coach', title: 'Entrenador', description: 'Preguntale qué entrenar hoy y por qué.' },
   { href: '/plan', title: 'Plan', description: 'Proponé y aprobá la semana de entrenamiento.' },
-  { href: '/activities', title: 'Actividades', description: 'Tus salidas sincronizadas desde Strava.' },
+  { href: '/calendar', title: 'Calendario', description: 'Vista mensual, semestral o anual de actividades.' },
   { href: '/power', title: 'Potencia', description: 'Curva de potencia, FTP estimado y zonas.' },
   { href: '/recovery', title: 'Recuperación', description: 'Sueño, FC en reposo, HRV y sensaciones.' },
   { href: '/profile', title: 'Perfil ciclista', description: 'Datos personales, FTP y frecuencias cardíacas.' },
   { href: '/availability', title: 'Disponibilidad', description: 'Horas por día para bici y fuerza.' },
-  { href: '/settings', title: 'Conexiones', description: 'Conectá Strava y Telegram.' },
+  { href: '/settings', title: 'Conexiones', description: 'Conectá Garmin y Telegram.' },
 ]
 
 export default async function HomePage() {
@@ -22,15 +23,8 @@ export default async function HomePage() {
     data: { user },
   } = await supabase.auth.getUser()
 
-  const sevenDaysAgo = new Date(Date.now() - 7 * 86400_000).toISOString()
-
-  const [{ data: profile }, { data: recent }, { data: load }] = await Promise.all([
+  const [{ data: profile }, { data: load }] = await Promise.all([
     supabase.from('users').select('name').eq('id', user!.id).maybeSingle(),
-    supabase
-      .from('activities')
-      .select('distance_meters, moving_seconds, duration_seconds, training_load')
-      .eq('user_id', user!.id)
-      .gte('start_time', sevenDaysAgo),
     supabase
       .from('training_load')
       .select('date, chronic_load, acute_load, form, ramp_rate')
@@ -40,16 +34,6 @@ export default async function HomePage() {
       .maybeSingle(),
   ])
 
-  const week = (recent ?? []).reduce(
-    (acc, a) => ({
-      count: acc.count + 1,
-      distance: acc.distance + (a.distance_meters ?? 0),
-      seconds: acc.seconds + (a.moving_seconds ?? a.duration_seconds ?? 0),
-      load: acc.load + (a.training_load ?? 0),
-    }),
-    { count: 0, distance: 0, seconds: 0, load: 0 }
-  )
-
   return (
     <div className="space-y-6">
       <div>
@@ -57,46 +41,51 @@ export default async function HomePage() {
         <p className="text-muted">Hola, {profile?.name || user?.email || 'ciclista'}.</p>
       </div>
 
-      <Card>
-        <h2 className="text-sm font-medium uppercase tracking-wide text-muted">Últimos 7 días</h2>
-        <dl className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-4">
-          <Metric label="Salidas" value={String(week.count)} />
-          <Metric label="Distancia" value={formatDistance(week.distance)} />
-          <Metric label="Tiempo" value={formatDuration(week.seconds)} />
-          <Metric label="Carga total" value={week.load ? Math.round(week.load).toString() : '—'} />
-        </dl>
-      </Card>
+      <WeeklyCalendarStrip />
 
       {load && (
-        <Card>
-          <h2 className="text-sm font-medium uppercase tracking-wide text-muted">
-            Estado de forma
-          </h2>
-          <dl className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-4">
-            <Metric label="Fitness (CTL)" value={fmt(load.chronic_load)} />
-            <Metric label="Fatiga (ATL)" value={fmt(load.acute_load)} />
-            <Metric label="Forma (TSB)" value={fmt(load.form)} />
-            <Metric label="Rampa 7d" value={fmt(load.ramp_rate)} />
-          </dl>
-          <p className="mt-3 text-sm text-muted">{describeForm(load.form)}</p>
-          <p className="mt-1 text-xs text-muted">
+        <CollapsibleSection
+          title="Estado de forma"
+          defaultOpen
+          summary={
+            <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <Metric label="Fitness (CTL)" value={fmt(load.chronic_load)} />
+              <Metric label="Fatiga (ATL)" value={fmt(load.acute_load)} />
+              <Metric label="Forma (TSB)" value={fmt(load.form)} />
+              <Metric label="Rampa 7d" value={fmt(load.ramp_rate)} />
+            </dl>
+          }
+        >
+          <p className="text-sm text-muted">{describeForm(load.form)}</p>
+          <p className="mt-2 text-xs text-muted">
             Valores calculados por esta app a partir de tus datos, no provistos por Strava.
           </p>
-        </Card>
+        </CollapsibleSection>
       )}
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        {SECTIONS.map((section) => (
-          <Link
-            key={section.href}
-            href={section.href}
-            className="rounded-lg border border-surface bg-surface p-4 shadow-sm transition hover:shadow-md"
-          >
-            <h2 className="font-bold">{section.title}</h2>
-            <p className="text-sm text-muted">{section.description}</p>
-          </Link>
-        ))}
-      </div>
+      <CollapsibleSection title="Gráficos de carga" defaultOpen={false}>
+        <TrainingLoadDashboard days={42} compact showStats={false} />
+      </CollapsibleSection>
+
+      <details className="group rounded-lg border border-surface bg-surface shadow-sm">
+        <summary className="cursor-pointer list-none p-4 text-sm font-medium uppercase tracking-wide text-muted [&::-webkit-details-marker]:hidden">
+          Accesos rápidos
+        </summary>
+        <div className="border-t border-surface p-4 pt-0">
+          <div className="grid gap-3 sm:grid-cols-2">
+            {SECTIONS.map((section) => (
+              <Link
+                key={section.href}
+                href={section.href}
+                className="rounded-lg border border-surface bg-background p-4 shadow-sm transition hover:shadow-md"
+              >
+                <h2 className="font-bold">{section.title}</h2>
+                <p className="text-sm text-muted">{section.description}</p>
+              </Link>
+            ))}
+          </div>
+        </div>
+      </details>
     </div>
   )
 }
@@ -104,8 +93,8 @@ export default async function HomePage() {
 function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <dt className="text-xs uppercase tracking-wide text-muted">{label}</dt>
-      <dd className="text-xl font-semibold text-foreground">{value}</dd>
+      <dt className="text-[10px] uppercase tracking-wide text-muted">{label}</dt>
+      <dd className="text-lg font-semibold text-foreground">{value}</dd>
     </div>
   )
 }

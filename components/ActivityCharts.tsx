@@ -31,6 +31,7 @@ type ActivitySample = {
   speed: number | null
   elevation: number | null
   temperature: number | null
+  respiration_rate: number | null
   latitude: number | null
   longitude: number | null
 }
@@ -43,6 +44,7 @@ type ChartPoint = {
   speed: number | null
   elevation: number | null
   temperature: number | null
+  respirationRate: number | null
 }
 
 type Props = {
@@ -56,9 +58,39 @@ type Props = {
  * shown won't match the bands (this used to fall back to the ride's own peak
  * HR/a crude power guess, which skewed the distribution toward Z3/Z4).
  */
+/** Speed threshold below which a sample counts as "stopped" (m/s ≈ 1.5 km/h). */
+const STOPPED_SPEED_MS = 0.4
+
+/**
+ * Compress samples to "moving time" by removing stopped intervals and
+ * re-indexing offset_seconds so charts show continuous riding without gaps.
+ */
+function compressToMovingTime(samples: ActivitySample[]): ActivitySample[] {
+  if (!samples.length) return samples
+
+  const sorted = [...samples].sort((a, b) => a.offset_seconds - b.offset_seconds)
+  const result: ActivitySample[] = []
+  let movingOffset = 0
+  let prevOrigOffset = sorted[0].offset_seconds
+
+  for (const s of sorted) {
+    const gap = s.offset_seconds - prevOrigOffset
+    const isMoving = s.speed !== null ? s.speed > STOPPED_SPEED_MS : true
+    prevOrigOffset = s.offset_seconds
+
+    if (isMoving) {
+      movingOffset += gap > 0 ? Math.min(gap, 5) : 0
+      result.push({ ...s, offset_seconds: movingOffset })
+    }
+  }
+
+  return result
+}
+
 function processRealSamples(samples: ActivitySample[], maxHr: number | null, ftp: number | null) {
   if (!samples.length) return null
 
+  // Zone calculations use ALL samples (including stopped) for accuracy
   const hrZones = countHrZones(
     samples.map((s) => s.heart_rate),
     maxHr
@@ -68,8 +100,11 @@ function processRealSamples(samples: ActivitySample[], maxHr: number | null, ftp
     ftp
   )
 
+  // Time-series charts use compressed (moving-only) data
+  const moving = compressToMovingTime(samples)
+
   return {
-    timeSeries: samples.map((s) => ({
+    timeSeries: moving.map((s) => ({
       seconds: s.offset_seconds,
       hr: s.heart_rate,
       power: s.power,
@@ -77,9 +112,13 @@ function processRealSamples(samples: ActivitySample[], maxHr: number | null, ftp
       speed: s.speed === null ? null : s.speed * 3.6,
       elevation: s.elevation,
       temperature: s.temperature,
+      respirationRate: s.respiration_rate,
     })),
     hrZones,
     pwrZones,
+    hasHr: samples.some((s) => s.heart_rate !== null),
+    hasPower: samples.some((s) => s.power !== null),
+    hasCadence: samples.some((s) => s.cadence !== null),
   }
 }
 
@@ -104,6 +143,7 @@ function downsampleSeries(points: ChartPoint[], maxPoints: number): ChartPoint[]
     'speed',
     'elevation',
     'temperature',
+    'respirationRate',
   ]
   const result: ChartPoint[] = []
 
@@ -141,13 +181,15 @@ function numericDomain(
   return [minAtZero ? 0 : Math.floor(min - padding), Math.ceil(max + padding)]
 }
 
-export function ActivityCharts({ activity, samples }: Props) {
-  const [realSamples, setRealSamples] = useState<ActivitySample[] | null>(samples || null)
-  const [loadingSamples, setLoadingSamples] = useState(!samples)
+export function ActivityCharts({ activity, samples: initialSamples }: Props) {
+  const [realSamples, setRealSamples] = useState<ActivitySample[] | null>(
+    initialSamples && initialSamples.length > 0 ? initialSamples : null
+  )
+  const [loadingSamples, setLoadingSamples] = useState(!initialSamples?.length)
 
   // Load samples from API if not provided
   useEffect(() => {
-    if (samples) return // Already have samples
+    if (initialSamples?.length) return
 
     let cancelled = false
     const loadSamples = async () => {
@@ -155,7 +197,9 @@ export function ActivityCharts({ activity, samples }: Props) {
         const res = await fetch(`/api/activities/${activity.id}/samples`)
         if (res.ok) {
           const data = await res.json()
-          if (!cancelled) setRealSamples(data)
+          if (!cancelled && Array.isArray(data) && data.length > 0) {
+            setRealSamples(data)
+          }
         }
       } catch (err) {
         console.error('Failed to load activity samples:', err)
@@ -168,7 +212,7 @@ export function ActivityCharts({ activity, samples }: Props) {
     return () => {
       cancelled = true
     }
-  }, [activity.id, samples])
+  }, [activity.id, initialSamples])
 
   // Profile-level thresholds — must match what's used to bucket the real samples below,
   // or the zone percentages won't line up with the bands shown.
@@ -223,12 +267,12 @@ export function ActivityCharts({ activity, samples }: Props) {
 
       {/* Data quality indicator */}
       {loadingSamples && (
-        <Alert variant="info">⏳ Cargando datos de segundo a segundo desde Strava…</Alert>
+        <Alert variant="info">⏳ Cargando datos de segundo a segundo…</Alert>
       )}
       {!loadingSamples && hasStreams && (
         <Alert variant="info">
-          ✓ <strong>Datos de máxima precisión:</strong> Gráficos con todos los datos de segundo a segundo desde
-          Strava (~{realSamples?.length?.toLocaleString()} puntos por actividad).
+          ✓ <strong>Datos de máxima precisión:</strong> Gráficos con ~{realSamples?.length?.toLocaleString()} muestras
+          por segundo. El eje de tiempo muestra solo tiempo en movimiento (sin paradas).
         </Alert>
       )}
       {!loadingSamples && !hasStreams && (
@@ -281,7 +325,7 @@ export function ActivityCharts({ activity, samples }: Props) {
       )}
 
       {/* Heart Rate Time Series */}
-      {hasStreams && activity.avg_hr && (
+      {hasStreams && chartData?.hasHr && (
         <Card>
           <h3 className="mb-4 font-semibold">Pulso durante la salida</h3>
           <ResponsiveContainer width="100%" height={250}>
@@ -314,8 +358,8 @@ export function ActivityCharts({ activity, samples }: Props) {
         </Card>
       )}
 
-      {/* Power Time Series - Only if real power meter */}
-      {hasStreams && activity.avg_power && activity.has_power_meter && (
+      {/* Power Time Series - Only if real power data */}
+      {hasStreams && chartData?.hasPower && (
         <Card>
           <h3 className="mb-4 font-semibold">Potencia durante la salida</h3>
           <ResponsiveContainer width="100%" height={250}>
@@ -444,36 +488,41 @@ export function ActivityCharts({ activity, samples }: Props) {
         </Card>
       )}
 
-      {/* Heart Rate Zones */}
-      {displayHrZones && (
+      {/* Respiration Rate - Only if available */}
+      {hasStreams && realSamples?.some((s) => s.respiration_rate !== null) && (
         <Card>
-          <h3 className="mb-4 font-semibold">Distribución de zonas de pulso</h3>
-          <ResponsiveContainer width="100%" height={250}>
-            <BarChart data={displayHrZones}>
+          <h3 className="mb-4 font-semibold">Frecuencia respiratoria</h3>
+          <ResponsiveContainer width="100%" height={200}>
+            <AreaChart data={timeSeries}>
+              <defs>
+                <linearGradient id="respirationGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#06b6d4" stopOpacity={0.6} />
+                  <stop offset="95%" stopColor="#06b6d4" stopOpacity={0} />
+                </linearGradient>
+              </defs>
               <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="zone" />
-              <YAxis />
-              <Tooltip formatter={(value) => `${Math.round(value as number)}%`} />
-              <Bar dataKey="value" fill="#3b82f6" radius={[8, 8, 0, 0]}>
-                {displayHrZones.map((entry) => (
-                  <Cell key={entry.zone} fill={entry.color} />
-                ))}
-              </Bar>
-            </BarChart>
+              <XAxis dataKey="seconds" type="number" domain={['dataMin', 'dataMax']} tickFormatter={formatAxisTime} />
+              <YAxis label={{ value: 'rpm', angle: -90, position: 'insideLeft' }} domain={numericDomain(timeSeries, 'respirationRate', 2)} />
+              <Tooltip
+                formatter={(value) => {
+                  if (typeof value === 'number') return `${value.toFixed(1)} rpm`
+                  return value
+                }}
+              />
+              <Area
+                type="monotone"
+                dataKey="respirationRate"
+                stroke="#06b6d4"
+                fillOpacity={1}
+                fill="url(#respirationGradient)"
+                isAnimationActive={false}
+              />
+            </AreaChart>
           </ResponsiveContainer>
-          <div className="mt-4 space-y-2">
-            {displayHrZones.map((zone) => (
-              <div key={zone.zone} className="flex items-center justify-between text-sm">
-                <div className="flex items-center gap-2">
-                  <div className="h-3 w-3 rounded" style={{ backgroundColor: zone.color }} />
-                  <span className="font-medium">{zone.label}</span>
-                </div>
-                <span className="text-slate-600">{zone.range}</span>
-              </div>
-            ))}
-          </div>
         </Card>
       )}
+
+      {/* Heart Rate Zones - moved later so charts flow: time series → power → speed → elevation → temp → respiration → cadence → HR zones */}
 
       {/* Power Zones */}
       {displayPowerZones && (
@@ -506,38 +555,68 @@ export function ActivityCharts({ activity, samples }: Props) {
         </Card>
       )}
 
-      {/* Cadence and Speed */}
-      {hasStreams && (activity.avg_cadence || activity.avg_speed) && (
+      {/* Cadence */}
+      {hasStreams && chartData?.hasCadence && (
         <Card>
-          <h3 className="mb-4 font-semibold">Cadencia y velocidad</h3>
-          <ResponsiveContainer width="100%" height={250}>
-            <LineChart data={timeSeries}>
+          <h3 className="mb-4 font-semibold">Cadencia</h3>
+          <ResponsiveContainer width="100%" height={200}>
+            <AreaChart data={timeSeries}>
+              <defs>
+                <linearGradient id="cadenceGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#f97316" stopOpacity={0.7} />
+                  <stop offset="95%" stopColor="#f97316" stopOpacity={0} />
+                </linearGradient>
+              </defs>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="seconds" type="number" domain={['dataMin', 'dataMax']} tickFormatter={formatAxisTime} />
-              <YAxis yAxisId="left" label={{ value: 'Cadencia (rpm)', angle: -90, position: 'insideLeft' }} domain={numericDomain(timeSeries, 'cadence', 5, true)} />
-              <YAxis
-                yAxisId="right"
-                orientation="right"
-                label={{ value: 'Velocidad (km/h)', angle: 90, position: 'insideRight' }}
-                domain={numericDomain(timeSeries, 'speed', 2, true)}
+              <YAxis label={{ value: 'rpm', angle: -90, position: 'insideLeft' }} domain={numericDomain(timeSeries, 'cadence', 5, true)} />
+              <Tooltip
+                formatter={(value) => {
+                  if (typeof value === 'number') return `${Math.round(value)} rpm`
+                  return value
+                }}
               />
-              <Tooltip />
-              <Legend />
-              {activity.avg_cadence && (
-                <Line yAxisId="left" type="monotone" dataKey="cadence" stroke="#f97316" isAnimationActive={false} />
-              )}
-              {activity.avg_speed && (
-                <Line
-                  yAxisId="right"
-                  type="monotone"
-                  dataKey="speed"
-                  stroke="#10b981"
-                  isAnimationActive={false}
-                  dot={false}
-                />
-              )}
-            </LineChart>
+              <Area
+                type="monotone"
+                dataKey="cadence"
+                stroke="#f97316"
+                fillOpacity={1}
+                fill="url(#cadenceGradient)"
+                isAnimationActive={false}
+              />
+            </AreaChart>
           </ResponsiveContainer>
+        </Card>
+      )}
+
+      {/* Heart Rate Zones (moved last among charts) */}
+      {displayHrZones && (
+        <Card>
+          <h3 className="mb-4 font-semibold">Distribución de zonas de pulso</h3>
+          <ResponsiveContainer width="100%" height={250}>
+            <BarChart data={displayHrZones}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="zone" />
+              <YAxis />
+              <Tooltip formatter={(value) => `${Math.round(value as number)}%`} />
+              <Bar dataKey="value" fill="#3b82f6" radius={[8, 8, 0, 0]}>
+                {displayHrZones.map((entry) => (
+                  <Cell key={entry.zone} fill={entry.color} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+          <div className="mt-4 space-y-2">
+            {displayHrZones.map((zone) => (
+              <div key={zone.zone} className="flex items-center justify-between text-sm">
+                <div className="flex items-center gap-2">
+                  <div className="h-3 w-3 rounded" style={{ backgroundColor: zone.color }} />
+                  <span className="font-medium">{zone.label}</span>
+                </div>
+                <span className="text-slate-600">{zone.range}</span>
+              </div>
+            ))}
+          </div>
         </Card>
       )}
 

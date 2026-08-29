@@ -5,6 +5,11 @@ import { deleteActivity, syncSingleActivity } from '@/lib/strava/sync'
 import { findUserByAthleteId } from '@/lib/strava/tokens'
 import { stravaWebhookEventSchema } from '@/lib/strava/types'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { reconcileWorkouts } from '@/lib/training/reconcile'
+import { checkReplan } from '@/lib/training/replan'
+import { proposeWeeklyPlan } from '@/lib/training/plan-service'
+import { maybeSaveSnapshot } from '@/lib/training/snapshot'
+import { isTelegramConfigured, sendMessage } from '@/lib/telegram/client'
 
 export const dynamic = 'force-dynamic'
 
@@ -58,6 +63,51 @@ export async function POST(request: Request) {
         await deleteActivity(userId, event.object_id)
       } else {
         await syncSingleActivity(userId, event.object_id)
+        // Save a weekly power-curve snapshot (if not already saved this week)
+        try {
+          await maybeSaveSnapshot(userId)
+        } catch (err) {
+          console.error('Failed to save power curve snapshot', err)
+        }
+        // Reconcile scheduled workouts and run a lightweight replan check.
+        try {
+          await reconcileWorkouts(userId)
+          const verdict = await checkReplan(userId)
+          if (verdict.shouldReplan) {
+            console.log(`Replan recommended for ${userId}:`, verdict.reasons)
+            try {
+              const proposal = await proposeWeeklyPlan(userId)
+              // Lookup telegram chat
+              const { data: userRow } = await createAdminClient().from('users').select('telegram_chat_id, name').eq('id', userId).maybeSingle()
+              const chatId = userRow?.telegram_chat_id ?? null
+              if (chatId && isTelegramConfigured()) {
+                const title = `Propuesta automática: ajustar la semana (${proposal.draft.startDate} → ${proposal.draft.endDate})`
+                const bodyLines = [
+                  title,
+                  '',
+                  `Enfoque: ${proposal.draft.emphasis} · carga planificada: ${proposal.draft.plannedLoad} · carga objetivo: ${proposal.draft.weeklyTargetLoad}`,
+                  '',
+                  proposal.rationale ? `Por qué: ${proposal.rationale}` : 'Sin explicación automatizada',
+                  '',
+                  'Si querés aplicar este cambio contestá "ACEPTAR" en este chat o abrí la app para revisarlo.',
+                ]
+                const text = bodyLines.join('\n')
+                await sendMessage(chatId, text)
+                await createAdminClient().from('coach_messages').insert({
+                  user_id: userId,
+                  direction: 'outbound',
+                  channel: 'telegram',
+                  message: text,
+                  intent: 'replan_suggestion',
+                })
+              }
+            } catch (err) {
+              console.error('Failed to propose replan:', err)
+            }
+          }
+        } catch (err) {
+          console.error('Replan check failed', err)
+        }
       }
     }
   } catch (err) {

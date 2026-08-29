@@ -4,7 +4,8 @@ import { countHrZones, countPowerZones, zoneCountsToPercent } from '@/lib/traini
 import 'server-only'
 
 const PAGE_SIZE = 1000
-const MAX_ACTIVITIES_ANALYZED = 5
+// Allow the coach to inspect a longer window (default 30 days) so it can see full cycles.
+const MAX_ACTIVITIES_ANALYZED = 200
 
 type SampleRow = { heart_rate: number | null; power: number | null; temperature: number | null }
 
@@ -36,14 +37,21 @@ async function fetchAllSamples(activityId: string): Promise<SampleRow[]> {
 export async function buildRecentActivityInsights(
   userId: string,
   maxHr: number | null,
-  ftp: number | null
+  ftp: number | null,
+  daysBack = 30
 ): Promise<string> {
   const supabase = createAdminClient()
 
+  // Only fetch activities within the requested window (daysBack) and cap the result.
+  const cutoff = new Date()
+  cutoff.setDate(cutoff.getDate() - daysBack)
+  const cutoffIso = cutoff.toISOString().slice(0, 10)
+
   const { data: activities } = await supabase
     .from('activities')
-    .select('id, start_time, title, sport_type, has_power_meter')
+    .select('id, start_time, title, sport_type, has_power_meter, avg_temperature, max_temperature, training_effect_aerobic, training_effect_anaerobic, avg_respiration_rate, calories, training_load, intensity_factor')
     .eq('user_id', userId)
+    .gte('start_time', cutoffIso)
     .order('start_time', { ascending: false })
     .limit(MAX_ACTIVITIES_ANALYZED)
 
@@ -74,8 +82,16 @@ export async function buildRecentActivityInsights(
 
     const temps = samples.map((s) => s.temperature).filter((v): v is number => v !== null)
     if (temps.length) {
-      parts.push(`temperatura ${Math.round(Math.min(...temps))}-${Math.round(Math.max(...temps))}°C`)
+      parts.push(`temp. corporal ${Math.round(Math.min(...temps))}-${Math.round(Math.max(...temps))}°C`)
     }
+
+    // Garmin-enriched session-level data
+    const act = activity as any
+    if (act.training_effect_aerobic != null) parts.push(`TE aeróbico ${act.training_effect_aerobic.toFixed(1)}`)
+    if (act.training_effect_anaerobic != null) parts.push(`TE anaeróbico ${act.training_effect_anaerobic.toFixed(1)}`)
+    if (act.avg_respiration_rate != null) parts.push(`respiración ${act.avg_respiration_rate.toFixed(0)} rpm`)
+    if (act.calories != null) parts.push(`${Math.round(act.calories)} kcal`)
+    if (act.training_load != null) parts.push(`carga ${Math.round(act.training_load)}`)
 
     if (parts.length) lines.push(`- ${label}: ${parts.join(', ')}`)
   }

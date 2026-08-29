@@ -5,7 +5,7 @@ import { SignOutButton } from '@/components/SignOutButton'
 const LINKS = [
   { href: '/coach', label: 'Entrenador' },
   { href: '/plan', label: 'Plan' },
-  { href: '/activities', label: 'Actividades' },
+  { href: '/calendar', label: 'Calendario' },
   { href: '/power', label: 'Potencia' },
   { href: '/recovery', label: 'Recuperación' },
   { href: '/profile', label: 'Perfil' },

@@ -35,9 +35,11 @@ const markdownComponents = {
     <th className="border border-slate-300 px-2 py-1 text-left font-semibold">{children}</th>
   ),
   td: ({ children }: { children?: React.ReactNode }) => <td className="border border-slate-300 px-2 py-1">{children}</td>,
-  code: ({ children }: { children?: React.ReactNode }) => (
-    <code className="rounded bg-slate-200 px-1 py-0.5 text-[0.85em]">{children}</code>
-  ),
+  code: ({ children }: { children?: React.ReactNode }) => {
+    const raw = String(children ?? '')
+    if (/^\s*\{[\s\S]*"workouts"\s*:/.test(raw)) return null
+    return <code className="rounded bg-slate-200 px-1 py-0.5 text-[0.85em]">{children}</code>
+  },
 }
 
 
@@ -63,22 +65,42 @@ type CoachPlan = {
  * whatever plan it just showed. Split it out so the athlete only sees the prose
  * and we can offer to save the exact same sessions.
  */
-function splitPlanBlock(message: string): { text: string; plan: CoachPlan | null } {
-  const match = message.match(/```plan\s*\n?([\s\S]*?)```/i)
-  if (!match) return { text: message, plan: null }
-
-  const text = message.replace(match[0], '').trim()
-
+function tryParsePlan(raw: string): CoachPlan | null {
   try {
-    const plan = JSON.parse(match[1].trim()) as CoachPlan
-    if (plan && Array.isArray(plan.workouts) && plan.workouts.length > 0) {
-      return { text, plan }
-    }
+    const plan = JSON.parse(raw.trim()) as CoachPlan
+    if (plan && Array.isArray(plan.workouts) && plan.workouts.length > 0) return plan
   } catch {
-    // Malformed block: show the prose, just don't offer the plan action.
+    // ignore
+  }
+  return null
+}
+
+function splitPlanBlock(message: string): { text: string; plan: CoachPlan | null } {
+  let text = message
+  let plan: CoachPlan | null = null
+
+  const fences = Array.from(text.matchAll(/```(?:plan|json)?\s*\n?([\s\S]*?)```/gi))
+  for (const match of fences) {
+    const parsed = tryParsePlan(match[1])
+    if (parsed) plan = parsed
+    if (parsed || /"workouts"\s*:/.test(match[1]) || /"emphasis"\s*:/.test(match[1])) {
+      text = text.replace(match[0], '')
+    }
   }
 
-  return { text, plan: null }
+  const trailing = text.match(/(\{[\s\S]*"workouts"\s*:\s*\[[\s\S]*)$/)
+  if (trailing && trailing.index != null) {
+    const parsed = tryParsePlan(trailing[1])
+    if (parsed) plan = parsed
+    text = text.slice(0, trailing.index)
+  }
+
+  text = text
+    .replace(/```(?:plan|json)?[\s\S]*$/i, '')
+    .replace(/\n?\{[\s\S]*"emphasis"[\s\S]*$/, '')
+    .trim()
+
+  return { text, plan }
 }
 
 export function CoachChat({ initialMessages }: { initialMessages: CoachMessage[] }) {
@@ -263,8 +285,8 @@ export function CoachChat({ initialMessages }: { initialMessages: CoachMessage[]
             {rationale && <p className="text-xs text-muted">{rationale}</p>}
             <div className="mt-2 space-y-1">
               {draft.workouts?.length ? (
-                draft.workouts.map((w: any) => (
-                  <div key={w.scheduled_date} className="flex justify-between">
+                draft.workouts.map((w: any, i: number) => (
+                  <div key={`${w.scheduled_date}-${w.workout_type}-${i}`} className="flex justify-between">
                     <div>
                       <div className="font-medium">{w.scheduled_date}</div>
                       <div className="text-xs text-muted">{w.title} — {w.duration_minutes} min</div>

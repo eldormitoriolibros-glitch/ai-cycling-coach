@@ -3,6 +3,7 @@ import { ChevronLeft } from 'lucide-react'
 import Link from 'next/link'
 import { ActivityCharts } from '@/components/ActivityCharts'
 import { Button, Card } from '@/components/ui'
+import { loadActivitySamples } from '@/lib/activities/samples'
 import { createClient } from '@/lib/supabase/server'
 import { formatDistance, formatDuration } from '@/lib/utils'
 import type { ActivityRow } from '@/lib/types/database'
@@ -19,9 +20,10 @@ export default async function ActivityDetailPage({ params }: { params: { id: str
     return notFound()
   }
 
-  const [{ data: activity }, { data: metrics }] = await Promise.all([
+  const [{ data: activity }, { data: metrics }, samples] = await Promise.all([
     supabase.from('activities').select('*').eq('id', params.id).eq('user_id', user.id).maybeSingle(),
     supabase.from('athlete_metrics').select('ftp, max_hr').eq('user_id', user.id).maybeSingle(),
+    loadActivitySamples(supabase, params.id).catch(() => []),
   ])
 
   if (!activity) {
@@ -65,7 +67,7 @@ export default async function ActivityDetailPage({ params }: { params: { id: str
       )}
 
       {/* Charts and Analysis */}
-      <ActivityCharts activity={activityWithMetrics} />
+      <ActivityCharts activity={activityWithMetrics} samples={samples} />
 
       {/* Details */}
       <Card className="space-y-4">
@@ -129,6 +131,38 @@ export default async function ActivityDetailPage({ params }: { params: { id: str
           <DetailItem
             label="Factor de intensidad"
             value={activity.intensity_factor ? `${activity.intensity_factor.toFixed(2)}` : '—'}
+          />
+          <DetailItem
+            label="Calorías"
+            value={activity.calories ? `${Math.round(activity.calories)} kcal` : '—'}
+          />
+          <DetailItem
+            label="Temp. corporal media"
+            value={activity.avg_temperature != null ? `${activity.avg_temperature.toFixed(1)} °C` : '—'}
+          />
+          <DetailItem
+            label="Temp. corporal máxima"
+            value={activity.max_temperature != null ? `${activity.max_temperature.toFixed(1)} °C` : '—'}
+          />
+          <DetailItem
+            label="Training Effect (aeróbico)"
+            value={activity.training_effect_aerobic != null ? `${activity.training_effect_aerobic.toFixed(1)}` : '—'}
+          />
+          <DetailItem
+            label="Training Effect (anaeróbico)"
+            value={activity.training_effect_anaerobic != null ? `${activity.training_effect_anaerobic.toFixed(1)}` : '—'}
+          />
+          <DetailItem
+            label="Respiración media"
+            value={activity.avg_respiration_rate != null ? `${activity.avg_respiration_rate.toFixed(1)} rpm` : '—'}
+          />
+          <DetailItem
+            label="Pérdida de sudor"
+            value={activity.sweat_loss_ml != null ? `${Math.round(activity.sweat_loss_ml)} ml` : '—'}
+          />
+          <DetailItem
+            label="Carga Garmin"
+            value={activity.garmin_training_load != null ? `${Math.round(activity.garmin_training_load)}` : '—'}
           />
         </div>
       </Card>

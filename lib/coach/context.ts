@@ -3,7 +3,10 @@ import { formatDistance, formatDuration } from '@/lib/utils'
 import { addDays, localDateKey } from '@/lib/training/dates'
 import { buildRecentActivityInsights } from './activity-insights'
 import { loadPowerSummary } from '@/lib/training/ftp'
-import { formatLoadSeries, formatPowerContext, formatExecution } from './execution'
+import { buildAthleteProfile, formatAthleteProfile } from '@/lib/training/athlete-profile'
+import { computeReadiness, formatAthleteState } from '@/lib/training/readiness'
+import { loadPreviousSnapshot } from '@/lib/training/snapshot'
+import { formatLoadSeries, formatPowerContext, formatExecution, formatCycleHistory } from './execution'
 
 import 'server-only'
 
@@ -16,7 +19,9 @@ const DAYS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', '
 export async function buildAthleteContext(userId: string): Promise<string> {
   const supabase = createAdminClient()
 
-  const [profile, metrics, availability, loadSeries, activities, workouts, recovery, sleep, planWeek] =
+  const cycleCutoff = addDays(new Date().toISOString().slice(0, 10), -84)
+
+  const [profile, metrics, availability, loadSeries, activities, cycleActivities, workouts, recovery, sleep, planWeeks] =
     await Promise.all([
       supabase.from('users').select('*').eq('id', userId).maybeSingle(),
       supabase.from('athlete_metrics').select('*').eq('user_id', userId).maybeSingle(),
@@ -26,7 +31,7 @@ export async function buildAthleteContext(userId: string): Promise<string> {
         .select('date, daily_load, chronic_load, acute_load, form, ramp_rate')
         .eq('user_id', userId)
         .order('date', { ascending: false })
-        .limit(15),
+        .limit(90),
       supabase
         .from('activities')
         .select(
@@ -36,6 +41,13 @@ export async function buildAthleteContext(userId: string): Promise<string> {
         .order('start_time', { ascending: false })
         .limit(10),
       supabase
+        .from('activities')
+        .select('start_time, distance_meters, moving_seconds, duration_seconds, training_load')
+        .eq('user_id', userId)
+        .gte('start_time', cycleCutoff)
+        .order('start_time', { ascending: false })
+        .limit(250),
+      supabase
         .from('workouts')
         .select('scheduled_date, title, workout_type, duration_minutes, status, target_zone, target_power, target_hr, purpose, completed_activity_id')
         .eq('user_id', userId)
@@ -44,7 +56,7 @@ export async function buildAthleteContext(userId: string): Promise<string> {
         .limit(20),
       supabase
         .from('recovery_metrics')
-        .select('date, resting_hr, hrv, soreness, motivation')
+        .select('date, resting_hr, hrv, stress, soreness, motivation, body_battery_high, body_battery_low, spo2_avg')
         .eq('user_id', userId)
         .order('date', { ascending: false })
         .limit(7),
@@ -59,8 +71,7 @@ export async function buildAthleteContext(userId: string): Promise<string> {
         .select('start_date, end_date, emphasis, block_position, target_load, planned_load')
         .eq('user_id', userId)
         .order('start_date', { ascending: false })
-        .limit(1)
-        .maybeSingle(),
+        .limit(12),
     ])
 
   const powerSummary = await loadPowerSummary(userId)
@@ -68,7 +79,9 @@ export async function buildAthleteContext(userId: string): Promise<string> {
   const p = profile.data
   const m = metrics.data
   const load = loadSeries.data
-  const plan = planWeek.data
+  const plan = planWeeks.data?.[0] ?? null
+  const previousCurve = await loadPreviousSnapshot(userId)
+  const athleteProfile = buildAthleteProfile(powerSummary?.curve ?? [], previousCurve)
 
   const lines: string[] = []
 
@@ -127,6 +140,15 @@ export async function buildAthleteContext(userId: string): Promise<string> {
   }
 
   lines.push('')
+  lines.push(...formatCycleHistory(
+    load ?? [],
+    cycleActivities.data ?? [],
+    tz,
+    todayIso,
+    planWeeks.data ?? []
+  ))
+
+  lines.push('')
   // Carga series (last 14 days + 7d comparison)
   lines.push('## Carga de entrenamiento (calculada por la app)')
   lines.push(...formatLoadSeries(load ?? [], todayIso))
@@ -173,31 +195,6 @@ export async function buildAthleteContext(userId: string): Promise<string> {
     }
   }
 
-  const sleepByDate = new Map((sleep.data ?? []).map((s) => [s.date, s]))
-  if (recovery.data?.length || sleep.data?.length) {
-    lines.push('')
-    lines.push('## Recuperación declarada (últimos días)')
-    const dates = Array.from(
-      new Set([...(recovery.data ?? []).map((r) => r.date), ...(sleep.data ?? []).map((s) => s.date)])
-    )
-      .sort()
-      .reverse()
-
-    for (const date of dates) {
-      const r = recovery.data?.find((x) => x.date === date)
-      const s = sleepByDate.get(date)
-      const parts = [
-        s?.duration_minutes ? `sueño ${(s.duration_minutes / 60).toFixed(1)} h` : null,
-        s?.sleep_score ? `calidad ${s.sleep_score}` : null,
-        r?.resting_hr ? `FC rep ${r.resting_hr}` : null,
-        r?.hrv ? `HRV ${r.hrv}` : null,
-        r?.soreness ? `dolor ${r.soreness}/10` : null,
-        r?.motivation ? `ganas ${r.motivation}/10` : null,
-      ].filter(Boolean)
-
-      if (parts.length) lines.push(`- ${date}: ${parts.join(', ')}`)
-    }
-  }
   // Current plan week (if any)
   if (plan) {
     lines.push('')
@@ -219,7 +216,53 @@ export async function buildAthleteContext(userId: string): Promise<string> {
   lines.push('## Curva de potencia (90 días)')
   lines.push(...formatPowerContext(powerSummary ?? null, m?.ftp ?? null))
 
-  lines.push(await buildRecentActivityInsights(userId, m?.max_hr ?? null, m?.ftp ?? null))
+  // Athlete profile (derived)
+  lines.push('')
+  lines.push('## Perfil del atleta (derivado de la curva de potencia, 90 días)')
+  lines.push(...formatAthleteProfile(athleteProfile))
+
+  // Estado del atleta (hoy) -- unified section replacing old "Recuperación" + "Readiness"
+  const latestRecovery = (recovery.data ?? [])[0] ?? null
+  const latestSleep = (sleep.data ?? [])[0] ?? null
+  const recData = recovery.data ?? []
+  const validRhr = recData.filter((r) => r.resting_hr != null)
+  const baselineResting = validRhr.length > 0 ? validRhr.reduce((s, r) => s + (r.resting_hr ?? 0), 0) / validRhr.length : null
+  const validHrv = recData.filter((r) => r.hrv != null)
+  const baselineHrv = validHrv.length > 0 ? validHrv.reduce((s, r) => s + (r.hrv ?? 0), 0) / validHrv.length : null
+
+  const readiness = computeReadiness({
+    form: load?.[0]?.form ?? null,
+    restingHr: latestRecovery?.resting_hr ?? null,
+    baselineRestingHr: baselineResting,
+    hrv: latestRecovery?.hrv ?? null,
+    baselineHrv: baselineHrv,
+    sleepHours: latestSleep?.duration_minutes ? latestSleep.duration_minutes / 60 : null,
+    sleepScore: latestSleep?.sleep_score ?? null,
+    soreness: latestRecovery?.soreness ?? null,
+    motivation: latestRecovery?.motivation ?? null,
+    bodyBattery: (latestRecovery as any)?.body_battery_high ?? null,
+    stressAvg: latestRecovery?.stress ?? null,
+    spo2: (latestRecovery as any)?.spo2_avg ?? null,
+  })
+
+  lines.push('')
+  lines.push('## Estado del atleta (hoy)')
+  lines.push(...formatAthleteState({
+    readiness,
+    form: load?.[0]?.form ?? null,
+    sleepHours: latestSleep?.duration_minutes ? latestSleep.duration_minutes / 60 : null,
+    sleepScore: latestSleep?.sleep_score ?? null,
+    restingHr: latestRecovery?.resting_hr ?? null,
+    hrv: latestRecovery?.hrv ? Number(latestRecovery.hrv) : null,
+    bodyBatteryHigh: (latestRecovery as any)?.body_battery_high ?? null,
+    stressAvg: latestRecovery?.stress ?? null,
+    spo2Avg: (latestRecovery as any)?.spo2_avg ?? null,
+    soreness: latestRecovery?.soreness ?? null,
+    motivation: latestRecovery?.motivation ?? null,
+  }))
+
+  // Give the coach one month of recent activity context so it can inspect training cycles.
+  lines.push(await buildRecentActivityInsights(userId, m?.max_hr ?? null, m?.ftp ?? null, 30))
 
   return lines.join('\n')
 }
