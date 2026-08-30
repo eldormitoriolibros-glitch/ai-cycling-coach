@@ -1,42 +1,13 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { estimateTrainingLoad } from '@/lib/training/load'
 import type { ParsedFitActivity } from './fit'
+import { findMatch, findTimeMatch, type ExistingActivity } from './activity-match'
+import { garminStoredExternalId } from './list-import'
 
 import 'server-only'
 
-const TIME_TOLERANCE_MS = 5 * 60 * 1000
-const DURATION_TOLERANCE_S = 300
-const DISTANCE_TOLERANCE_RATIO = 0.015
-const DISTANCE_TOLERANCE_MIN_M = 250
-
-export type ExistingActivity = {
-  id: string
-  title: string | null
-  start_time: string
-  duration_seconds: number | null
-  moving_seconds: number | null
-  distance_meters: number | null
-  avg_hr: number | null
-  max_hr: number | null
-  avg_cadence: number | null
-  max_cadence: number | null
-  avg_power: number | null
-  max_power: number | null
-  avg_speed: number | null
-  max_speed: number | null
-  elevation_gain_meters: number | null
-  avg_temperature: number | null
-  max_temperature: number | null
-  training_effect_aerobic: number | null
-  training_effect_anaerobic: number | null
-  avg_respiration_rate: number | null
-  calories: number | null
-  sweat_loss_ml: number | null
-  garmin_training_load: number | null
-  has_power_meter: boolean
-  kilojoules: number | null
-  training_load: number | null
-}
+export type { ExistingActivity } from './activity-match'
+export { findMatch, findTimeMatch } from './activity-match'
 
 export type EnrichResult = {
   enriched: number
@@ -72,56 +43,30 @@ export async function loadAllActivities(userId: string): Promise<ExistingActivit
   return all
 }
 
-/** Finds the best existing activity for a parsed FIT session, or null. */
-export function findMatch(
-  fit: ParsedFitActivity,
-  candidates: ExistingActivity[],
-  taken: Set<string>
-): { activity: ExistingActivity; via: 'time' | 'distance+duration'; score: number } | null {
-  const fitStart = new Date(fit.startTime).getTime()
-  if (Number.isNaN(fitStart)) return null
+async function loadGarminActivityIds(
+  userId: string,
+  externalIds: string[]
+): Promise<Map<string, string>> {
+  if (externalIds.length === 0) return new Map()
 
-  let best: ExistingActivity | null = null
-  let bestScore = Infinity
-  let bestVia: 'time' | 'distance+duration' = 'time'
+  const supabase = createAdminClient()
+  const map = new Map<string, string>()
 
-  for (const act of candidates) {
-    if (taken.has(act.id)) continue
-    const actStart = new Date(act.start_time).getTime()
+  for (let i = 0; i < externalIds.length; i += 200) {
+    const chunk = externalIds.slice(i, i + 200)
+    const { data } = await supabase
+      .from('activities')
+      .select('id, external_id')
+      .eq('user_id', userId)
+      .eq('source', 'garmin')
+      .in('external_id', chunk)
 
-    const timeDelta = Math.abs(actStart - fitStart)
-    if (timeDelta <= TIME_TOLERANCE_MS) {
-      const score = timeDelta / TIME_TOLERANCE_MS
-      if (score < bestScore) {
-        best = act
-        bestScore = score
-        bestVia = 'time'
-      }
-      continue
-    }
-
-    const fitDist = fit.distanceMeters
-    const actDist = act.distance_meters
-    const fitDur = fit.durationSeconds
-    const actDur = act.moving_seconds ?? act.duration_seconds
-
-    if (fitDist != null && actDist != null && fitDur != null && actDur != null) {
-      const distDelta = Math.abs(actDist - fitDist)
-      const durDelta = Math.abs(actDur - fitDur)
-      const distAllowed = Math.max(DISTANCE_TOLERANCE_MIN_M, fitDist * DISTANCE_TOLERANCE_RATIO)
-
-      if (distDelta <= distAllowed && durDelta <= DURATION_TOLERANCE_S) {
-        const score = 1 + distDelta / distAllowed + durDelta / DURATION_TOLERANCE_S
-        if (score < bestScore) {
-          best = act
-          bestScore = score
-          bestVia = 'distance+duration'
-        }
-      }
+    for (const row of data ?? []) {
+      if (row.external_id) map.set(row.external_id, row.id)
     }
   }
 
-  return best ? { activity: best, via: bestVia, score: bestScore } : null
+  return map
 }
 
 /**
@@ -138,6 +83,11 @@ export async function enrichActivities(
   const supabase = createAdminClient()
 
   const candidates = await loadAllActivities(userId)
+  const candidatesById = new Map(candidates.map((c) => [c.id, c]))
+  const garminExternalIds = fitActivities
+    .map((f) => (f.garminActivityId ? garminStoredExternalId(f.garminActivityId) : null))
+    .filter((id): id is string => id != null)
+  const garminRowsByExternalId = await loadGarminActivityIds(userId, garminExternalIds)
   const matched = new Set<string>()
   let enriched = 0
   let samplesAdded = 0
@@ -146,14 +96,26 @@ export async function enrichActivities(
   const unmatched: ParsedFitActivity[] = []
 
   for (const fit of fitActivities) {
-    const match = findMatch(fit, candidates, matched)
+    let best: ExistingActivity | null = null
 
-    if (!match) {
+    if (fit.garminActivityId) {
+      const storedId = garminStoredExternalId(fit.garminActivityId)
+      const dbId = garminRowsByExternalId.get(storedId)
+      if (dbId) {
+        best = candidatesById.get(dbId) ?? null
+      } else {
+        // New Garmin id: only merge with a row at the same start time (e.g. Strava).
+        best = findTimeMatch(fit, candidates, matched)
+      }
+    } else {
+      best = findMatch(fit, candidates, matched)?.activity ?? null
+    }
+
+    if (!best) {
       unmatched.push(fit)
       continue
     }
 
-    const best = match.activity
     matched.add(best.id)
 
     // Build patch: only fill NULL fields

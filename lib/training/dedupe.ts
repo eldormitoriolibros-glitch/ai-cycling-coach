@@ -1,4 +1,5 @@
 import { createAdminClient } from '@/lib/supabase/admin'
+import { pickDuplicateLosers, type DuplicateCandidate } from './duplicate-rides'
 
 import 'server-only'
 
@@ -44,5 +45,34 @@ export async function removeDuplicateManualActivities(userId: string): Promise<n
   if (doomed.length === 0) return 0
 
   await supabase.from('activities').delete().in('id', doomed)
+  return doomed.length
+}
+
+/**
+ * Removes same-ride copies (e.g. Strava + Garmin list) so the calendar
+ * and training load count each outing once. Keeps the richer/older row.
+ */
+export async function removeDuplicateActivities(userId: string): Promise<number> {
+  const supabase = createAdminClient()
+  const rows: DuplicateCandidate[] = []
+
+  for (let page = 0; ; page++) {
+    const { data: chunk } = await supabase
+      .from('activities')
+      .select('id, source, start_time, distance_meters, moving_seconds, duration_seconds, created_at')
+      .eq('user_id', userId)
+      .order('start_time', { ascending: true })
+      .range(page * 1000, page * 1000 + 999)
+
+    rows.push(...((chunk ?? []) as DuplicateCandidate[]))
+    if (!chunk || chunk.length < 1000) break
+  }
+
+  const doomed = pickDuplicateLosers(rows)
+  if (doomed.length === 0) return 0
+
+  for (let i = 0; i < doomed.length; i += 200) {
+    await supabase.from('activities').delete().in('id', doomed.slice(i, i + 200))
+  }
   return doomed.length
 }

@@ -23,10 +23,65 @@ export type AthleteThresholds = {
   timeZone: string
 }
 
-/** Garmin's list endpoint exposes the id under a couple of different keys. */
-export function garminActivityId(activity: any): string | null {
-  const id = activity?.activityId ?? activity?.activityid ?? activity?.id
-  return id == null ? null : String(id)
+import { garminActivityId, selectActivitiesForIncrementalSync } from './incremental-sync'
+import { garminStoredExternalId } from './list-import'
+
+export { garminActivityId, selectActivitiesForIncrementalSync }
+
+/** Which Garmin activity ids are already stored for this user (source=garmin). */
+export async function loadExistingGarminIds(
+  userId: string,
+  candidateIds: string[]
+): Promise<Set<string>> {
+  if (candidateIds.length === 0) return new Set()
+
+  const supabase = createAdminClient()
+  const existing = new Set<string>()
+
+  for (let i = 0; i < candidateIds.length; i += 200) {
+    const chunk = candidateIds.slice(i, i + 200).map((id) => garminStoredExternalId(id))
+    const { data } = await supabase
+      .from('activities')
+      .select('external_id')
+      .eq('user_id', userId)
+      .eq('source', 'garmin')
+      .in('external_id', chunk)
+
+    for (const row of data ?? []) {
+      if (row.external_id?.startsWith('garmin-')) {
+        existing.add(row.external_id.slice('garmin-'.length))
+      }
+    }
+  }
+
+  return existing
+}
+
+/** Garmin ids already stored, with their start_time so we can repair bad dates. */
+export async function loadExistingGarminRows(
+  userId: string,
+  candidateIds: string[]
+): Promise<Map<string, { start_time: string }>> {
+  const map = new Map<string, { start_time: string }>()
+  if (candidateIds.length === 0) return map
+
+  const supabase = createAdminClient()
+  for (let i = 0; i < candidateIds.length; i += 200) {
+    const chunk = candidateIds.slice(i, i + 200).map((id) => garminStoredExternalId(id))
+    const { data } = await supabase
+      .from('activities')
+      .select('external_id, start_time')
+      .eq('user_id', userId)
+      .eq('source', 'garmin')
+      .in('external_id', chunk)
+
+    for (const row of data ?? []) {
+      if (row.external_id?.startsWith('garmin-')) {
+        map.set(row.external_id.slice('garmin-'.length), { start_time: row.start_time })
+      }
+    }
+  }
+  return map
 }
 
 /**
@@ -49,9 +104,10 @@ export async function downloadActivityFits(
     for (const file of await readdir(dir)) {
       const buf = await readFile(join(dir, file))
       const { fits } = await extractFitReport(buf, file)
-      for (const fit of fits) {
+      const rideFits = preferActivityFits(fits)
+      for (const fit of rideFits) {
         const sessions = await parseFitFile(fit.data).catch(() => [])
-        out.push(...sessions)
+        out.push(...sessions.filter((session) => isPlausibleStart(session.startTime)))
       }
     }
   } finally {
@@ -60,6 +116,21 @@ export async function downloadActivityFits(
 
   const id = garminActivityId(activity)
   return out.map((session) => ({ ...session, garminActivityId: id }))
+}
+
+function isAuxiliaryFitName(name: string): boolean {
+  return /METRICS|WELLNESS|MONITOR|SLEEP|HRV/i.test(name)
+}
+
+function preferActivityFits<T extends { name: string }>(fits: T[]): T[] {
+  const rides = fits.filter((f) => !isAuxiliaryFitName(f.name))
+  return rides.length > 0 ? rides : fits
+}
+
+function isPlausibleStart(iso: string | null | undefined): boolean {
+  if (!iso) return false
+  const d = new Date(iso)
+  return !Number.isNaN(d.getTime()) && d.getUTCFullYear() >= 2000
 }
 
 /**
@@ -133,6 +204,52 @@ export async function ingestFitActivities(
   }
 
   totals.created = items.length
+  return totals
+}
+
+/**
+ * Inserts or updates by Garmin activity id only. Used by incremental sync so a
+ * new ride never gets absorbed into an older row with similar km/duration.
+ */
+export async function upsertGarminListActivities(
+  userId: string,
+  fitActivities: ParsedFitActivity[],
+  thresholds: AthleteThresholds
+): Promise<IngestTotals> {
+  const totals: IngestTotals = { enriched: 0, created: 0, samplesAdded: 0, samplesReplaced: 0 }
+  if (fitActivities.length === 0) return totals
+
+  const items = await buildFitImportRows(
+    userId,
+    fitActivities,
+    thresholds.timeZone,
+    thresholds.ftp,
+    thresholds.maxHr,
+    thresholds.restingHr
+  )
+  if (items.length === 0) return totals
+
+  const supabase = createAdminClient()
+  const { data: existing } = await supabase
+    .from('activities')
+    .select('external_id')
+    .eq('user_id', userId)
+    .eq('source', 'garmin')
+    .in('external_id', items.map((item) => item.externalId))
+
+  const already = new Set((existing ?? []).map((row) => row.external_id))
+
+  const { error } = await supabase
+    .from('activities')
+    .upsert(
+      items.map((item) => item.row),
+      { onConflict: 'user_id,source,external_id' }
+    )
+
+  if (error) throw new Error(error.message)
+
+  totals.created = items.filter((item) => !already.has(item.externalId)).length
+  totals.enriched = items.length - totals.created
   return totals
 }
 

@@ -20,8 +20,13 @@ type BackfillState = {
 type SyncResult = {
   activitiesEnriched: number
   activitiesCreated: number
+  activitiesFromList: number
+  activitiesPending: number
   samplesAdded: number
   healthDaysUpdated: number
+  fitDownloadFailures: number
+  duplicatesRemoved?: number
+  latestFromGarmin?: Array<{ id: string; title: string; startTime: string | null }>
   error?: string
 }
 
@@ -221,6 +226,16 @@ export function GarminConnectCard({ initial }: { initial: ConnectionState }) {
         {syncResult && (
           <Alert variant="success">
             {formatSyncResult(syncResult)}
+            {syncResult.latestFromGarmin?.[0] && (
+              <>
+                {' '}
+                Última en Garmin: {syncResult.latestFromGarmin[0].title}
+                {syncResult.latestFromGarmin[0].startTime
+                  ? ` (${new Date(syncResult.latestFromGarmin[0].startTime).toLocaleString()})`
+                  : ''}
+                .
+              </>
+            )}
           </Alert>
         )}
 
@@ -341,8 +356,20 @@ function formatSyncResult(r: SyncResult): string {
   const parts: string[] = []
   if (r.activitiesEnriched > 0) parts.push(`${r.activitiesEnriched} actividades enriquecidas`)
   if (r.activitiesCreated > 0) parts.push(`${r.activitiesCreated} actividades creadas`)
+  if (r.activitiesFromList > 0) parts.push(`${r.activitiesFromList} importadas desde resumen Garmin`)
   if (r.samplesAdded > 0) parts.push(`${r.samplesAdded} con muestras por segundo`)
   if (r.healthDaysUpdated > 0) parts.push(`${r.healthDaysUpdated} días de salud actualizados`)
-  if (parts.length === 0) return 'Sincronización completa. No se encontraron datos nuevos.'
+  if (r.fitDownloadFailures > 0) {
+    parts.push(`${r.fitDownloadFailures} sin archivo FIT (revisá en Garmin Connect)`)
+  }
+  if ((r.duplicatesRemoved ?? 0) > 0) {
+    parts.push(`${r.duplicatesRemoved} duplicados eliminados`)
+  }
+  if (parts.length === 0) {
+    if (r.activitiesPending > 0) {
+      return `Sincronización completa. ${r.activitiesPending} actividades revisadas; ninguna nueva (ya estaban importadas).`
+    }
+    return 'Sincronización completa. No se encontraron datos nuevos.'
+  }
   return `Sincronización completa: ${parts.join(' · ')}`
 }

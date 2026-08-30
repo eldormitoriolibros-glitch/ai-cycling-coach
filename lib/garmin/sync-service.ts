@@ -1,16 +1,37 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getGarminClient } from './client'
-import { downloadActivityFits, ingestFitActivities, loadThresholds } from './activity-sync'
+import {
+  downloadActivityFits,
+  garminActivityId,
+  ingestFitActivities,
+  loadExistingGarminRows,
+  loadThresholds,
+  upsertGarminListActivities,
+} from './activity-sync'
 import type { ParsedFitActivity } from './fit'
+import { findMatch, type ExistingActivity } from './activity-match'
+import { listActivityToParsedFit, parseGarminListStart } from './list-import'
+import { removeDuplicateActivities } from '@/lib/training/dedupe'
 import { recomputeActivityLoads, recomputeTrainingLoad } from '@/lib/training/rollup'
 
 import 'server-only'
 
+export type SyncPreviewItem = {
+  id: string
+  title: string
+  startTime: string | null
+}
+
 export type SyncResult = {
   activitiesEnriched: number
   activitiesCreated: number
+  activitiesFromList: number
+  activitiesPending: number
   samplesAdded: number
   healthDaysUpdated: number
+  fitDownloadFailures: number
+  duplicatesRemoved: number
+  latestFromGarmin: SyncPreviewItem[]
   error?: string
 }
 
@@ -19,8 +40,13 @@ export async function syncGarminData(userId: string): Promise<SyncResult> {
   const result: SyncResult = {
     activitiesEnriched: 0,
     activitiesCreated: 0,
+    activitiesFromList: 0,
+    activitiesPending: 0,
     samplesAdded: 0,
     healthDaysUpdated: 0,
+    fitDownloadFailures: 0,
+    duplicatesRemoved: 0,
+    latestFromGarmin: [],
   }
 
   const garmin = await getGarminClient(userId)
@@ -28,34 +54,82 @@ export async function syncGarminData(userId: string): Promise<SyncResult> {
 
   const { client, saveTokens } = garmin
 
-  const [thresholds, { data: connRow }] = await Promise.all([
-    loadThresholds(userId),
-    supabase.from('garmin_connections').select('last_sync_at').eq('user_id', userId).maybeSingle(),
-  ])
-
-  const lastSync = connRow?.last_sync_at ? new Date(connRow.last_sync_at) : new Date(Date.now() - 30 * 86_400_000)
+  const thresholds = await loadThresholds(userId)
 
   // --- Activities sync ---
   try {
     const activities = await client.getActivities(0, 50)
-    const recent = (activities ?? []).filter((a: any) => {
-      const start = new Date(a.startTimeGMT || a.startTimeLocal || 0)
-      return start >= lastSync
-    })
+    const listed = activities ?? []
+    result.latestFromGarmin = listed.slice(0, 5).map((a: any) => ({
+      id: garminActivityId(a) ?? '?',
+      title: a.activityName ?? a.activityType?.typeKey ?? 'actividad',
+      startTime: parseGarminListStart(a)?.toISOString() ?? null,
+    }))
+
+    const candidateIds = listed
+      .map((a: any) => garminActivityId(a))
+      .filter((id): id is string => id != null)
+    const existingRows = await loadExistingGarminRows(userId, candidateIds)
+    const cutoff = new Date(Date.now() - 21 * 86_400_000)
+    const recentExisting = await loadRecentActivityMatches(userId, cutoff)
+    const taken = new Set<string>()
+
+    const toCreate: ParsedFitActivity[] = []
+    const toDownload: any[] = []
+
+    for (const activity of listed) {
+      const start = parseGarminListStart(activity)
+      if (start && start < cutoff) continue
+      const id = garminActivityId(activity)
+      if (!id) continue
+
+      const stored = existingRows.get(id)
+      if (stored) {
+        if (!start) continue
+        const delta = Math.abs(new Date(stored.start_time).getTime() - start.getTime())
+        if (delta <= 12 * 3_600_000) continue
+      }
+
+      const parsed = listActivityToParsedFit(activity)
+      if (!parsed) continue
+
+      const match = findMatch(parsed, recentExisting, taken)
+      if (match) {
+        taken.add(match.activity.id)
+        continue
+      }
+
+      toCreate.push(parsed)
+      toDownload.push(activity)
+    }
+    result.activitiesPending = toCreate.length
+
+    if (toCreate.length > 0) {
+      const listTotals = await upsertGarminListActivities(userId, toCreate, thresholds)
+      result.activitiesCreated += listTotals.created
+      result.activitiesFromList += listTotals.created
+      result.activitiesEnriched += listTotals.enriched
+    }
 
     const fitActivities: ParsedFitActivity[] = []
-    for (const activity of recent) {
+    for (const activity of toDownload) {
       try {
-        fitActivities.push(...(await downloadActivityFits(client, activity)))
+        const fits = await downloadActivityFits(client, activity)
+        if (fits.length > 0) fitActivities.push(...fits)
+        else result.fitDownloadFailures++
       } catch (err) {
-        console.error(`Garmin sync: failed to download activity ${activity.activityId}:`, err)
+        console.error(`Garmin sync: failed to download activity ${garminActivityId(activity)}:`, err)
+        result.fitDownloadFailures++
       }
     }
 
-    const totals = await ingestFitActivities(userId, fitActivities, thresholds)
-    result.activitiesEnriched = totals.enriched
-    result.activitiesCreated = totals.created
-    result.samplesAdded = totals.samplesAdded + totals.samplesReplaced
+    if (fitActivities.length > 0) {
+      const totals = await ingestFitActivities(userId, fitActivities, thresholds)
+      result.activitiesEnriched += totals.enriched
+      result.samplesAdded += totals.samplesAdded + totals.samplesReplaced
+    }
+
+    result.duplicatesRemoved = await removeDuplicateActivities(userId)
   } catch (err) {
     console.error('Garmin activity sync failed:', err)
   }
@@ -157,7 +231,7 @@ export async function syncGarminData(userId: string): Promise<SyncResult> {
   }
 
   // Recompute loads if activities were touched
-  if (result.activitiesEnriched + result.activitiesCreated > 0) {
+  if (result.activitiesEnriched + result.activitiesCreated + result.duplicatesRemoved > 0) {
     try {
       await recomputeActivityLoads(userId)
       await recomputeTrainingLoad(userId)
@@ -182,4 +256,44 @@ export async function syncGarminData(userId: string): Promise<SyncResult> {
   }
 
   return result
+}
+
+async function loadRecentActivityMatches(userId: string, since: Date): Promise<ExistingActivity[]> {
+  const supabase = createAdminClient()
+  const { data } = await supabase
+    .from('activities')
+    .select('id, title, start_time, duration_seconds, moving_seconds, distance_meters')
+    .eq('user_id', userId)
+    .gte('start_time', since.toISOString())
+    .order('start_time', { ascending: false })
+    .limit(200)
+
+  return (data ?? []).map((row) => ({
+    id: row.id,
+    title: row.title,
+    start_time: row.start_time,
+    duration_seconds: row.duration_seconds,
+    moving_seconds: row.moving_seconds,
+    distance_meters: row.distance_meters,
+    avg_hr: null,
+    max_hr: null,
+    avg_cadence: null,
+    max_cadence: null,
+    avg_power: null,
+    max_power: null,
+    avg_speed: null,
+    max_speed: null,
+    elevation_gain_meters: null,
+    avg_temperature: null,
+    max_temperature: null,
+    training_effect_aerobic: null,
+    training_effect_anaerobic: null,
+    avg_respiration_rate: null,
+    calories: null,
+    sweat_loss_ml: null,
+    garmin_training_load: null,
+    has_power_meter: false,
+    kilojoules: null,
+    training_load: null,
+  }))
 }
