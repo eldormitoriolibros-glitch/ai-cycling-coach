@@ -5,10 +5,10 @@ import Link from 'next/link'
 import { ChevronRight } from 'lucide-react'
 import { Card } from '@/components/ui'
 import type { CalendarActivity } from '@/lib/calendar/types'
-import { buildWeeksInRange, DAY_LABELS, getMonday, getSunday } from '@/lib/calendar/weeks'
+import { buildWeeksInRange, getMonday, getSunday } from '@/lib/calendar/weeks'
 import { formatCalendarDistance, formatCalendarDuration } from '@/lib/calendar/format'
-import { CALENDAR_GRID_COLS_COMPACT } from './calendar-utils'
 import { CalendarWeekRow } from './CalendarWeekRow'
+import { WeekdayHeader } from './WeekdayHeader'
 import { ActivityTooltip } from './ActivityTooltip'
 
 export function WeeklyCalendarStrip() {
@@ -42,7 +42,7 @@ export function WeeklyCalendarStrip() {
   const week = weeks[0]
 
   return (
-    <Card className="p-4">
+    <Card className="p-4 sm:p-5">
       <div className="mb-3 flex items-center justify-between gap-2">
         <div>
           <h2 className="text-sm font-medium uppercase tracking-wide text-muted">Esta semana</h2>
@@ -73,15 +73,7 @@ export function WeeklyCalendarStrip() {
         <p className="text-sm text-muted animate-pulse">Cargando…</p>
       ) : week ? (
         <>
-          <div className={`grid ${CALENDAR_GRID_COLS_COMPACT} gap-0 pb-1`}>
-            <div />
-            {DAY_LABELS.map((d) => (
-              <div key={d} className="text-center text-[9px] font-semibold text-muted uppercase">
-                {d}
-              </div>
-            ))}
-            <div />
-          </div>
+          <WeekdayHeader today={now} compact />
           <CalendarWeekRow
             week={week}
             compact

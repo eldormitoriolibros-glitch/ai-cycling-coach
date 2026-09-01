@@ -1,8 +1,8 @@
 import type { ParsedFitActivity } from './fit'
 
 const TIME_TOLERANCE_MS = 5 * 60 * 1000
-/** Distance+duration matching still requires start times to be close. */
-const DISTANCE_MATCH_MAX_TIME_MS = 30 * 60 * 1000
+/** Distance+duration matching still requires start times to be close (covers TZ offsets). */
+const DISTANCE_MATCH_MAX_TIME_MS = 4 * 60 * 60 * 1000
 const DURATION_TOLERANCE_S = 300
 const DISTANCE_TOLERANCE_RATIO = 0.015
 const DISTANCE_TOLERANCE_MIN_M = 250
@@ -78,6 +78,20 @@ export function findMatch(
 
       if (distDelta <= distAllowed && durDelta <= DURATION_TOLERANCE_S) {
         const score = 1 + distDelta / distAllowed + durDelta / DURATION_TOLERANCE_S
+        if (score < bestScore) {
+          best = act
+          bestScore = score
+          bestVia = 'distance+duration'
+        }
+      }
+    }
+
+    const indoorFit = fitDist == null || fitDist < 100
+    const indoorAct = actDist == null || actDist < 100
+    if (indoorFit && indoorAct && fitDur != null && actDur != null && timeDelta <= DISTANCE_MATCH_MAX_TIME_MS) {
+      const durDelta = Math.abs(actDur - fitDur)
+      if (durDelta <= DURATION_TOLERANCE_S) {
+        const score = 2 + durDelta / DURATION_TOLERANCE_S
         if (score < bestScore) {
           best = act
           bestScore = score

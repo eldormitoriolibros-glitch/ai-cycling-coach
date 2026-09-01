@@ -1,5 +1,6 @@
 import type { ExperienceLevel } from '@/lib/types/database'
 import { addDays, dayOfWeek } from './dates'
+import { formatBikeDescription } from './workout-blocks'
 
 export type SessionKind = 'recovery' | 'endurance' | 'long' | 'tempo' | 'threshold' | 'vo2max' | 'strength'
 
@@ -59,7 +60,8 @@ export const TEMPLATES: Record<
     hrFactor: number
     softCapMinutes: number
     title: string
-    description: string
+    /** Main work only; warmup/cooldown are added when the session is built. */
+    mainWork: string
     purpose: string
   }
 > = {
@@ -70,7 +72,7 @@ export const TEMPLATES: Record<
     hrFactor: 0.6,
     softCapMinutes: 60,
     title: 'Regenerativo',
-    description: 'Rodaje muy suave, cadencia alta y plato chico. No pases de Z1 ni en las subidas.',
+    mainWork: 'Rodaje muy suave, cadencia alta y plato chico. No pases de Z1 ni en las subidas',
     purpose: 'Mover las piernas y acelerar la recuperación sin agregar fatiga.',
   },
   endurance: {
@@ -80,7 +82,7 @@ export const TEMPLATES: Record<
     hrFactor: 0.7,
     softCapMinutes: 150,
     title: 'Fondo aeróbico',
-    description: 'Ritmo constante en Z2. Tenés que poder mantener una conversación todo el rato.',
+    mainWork: 'Ritmo constante en Z2. Tenés que poder mantener una conversación todo el rato',
     purpose: 'Construir base aeróbica: el motor que sostiene todo lo demás.',
   },
   long: {
@@ -90,8 +92,7 @@ export const TEMPLATES: Record<
     hrFactor: 0.7,
     softCapMinutes: 300,
     title: 'Salida larga',
-    description:
-      'La salida más larga de la semana, en Z2. Comé algo cada 45 min y tomá agua desde el arranque.',
+    mainWork: 'La parte larga de la semana, en Z2. Comé algo cada 45 min y tomá agua desde el arranque',
     purpose: 'Resistencia y eficiencia usando grasas como combustible.',
   },
   tempo: {
@@ -101,8 +102,7 @@ export const TEMPLATES: Record<
     hrFactor: 0.8,
     softCapMinutes: 105,
     title: 'Tempo',
-    description:
-      '15 min de entrada en Z2, después 2 bloques de 20 min en Z3 con 10 min suaves entre medio, y 10 min de vuelta a la calma.',
+    mainWork: '2 bloques de 20 min en Z3 con 10 min suaves entre medio',
     purpose: 'Subir el techo aeróbico con una fatiga que se paga rápido.',
   },
   threshold: {
@@ -112,8 +112,7 @@ export const TEMPLATES: Record<
     hrFactor: 0.88,
     softCapMinutes: 90,
     title: 'Umbral',
-    description:
-      '15 min de entrada, 4 bloques de 8 min al FTP con 4 min suaves entre cada uno, 10 min de vuelta a la calma.',
+    mainWork: '4 bloques de 8 min al FTP con 4 min suaves entre cada uno',
     purpose: 'Empujar el FTP para arriba: la métrica que más cambia tu rendimiento.',
   },
   vo2max: {
@@ -123,8 +122,7 @@ export const TEMPLATES: Record<
     hrFactor: 0.93,
     softCapMinutes: 75,
     title: 'VO2 máx',
-    description:
-      '20 min de entrada progresiva, 5 series de 4 min fuerte con 4 min suaves, 10 min de vuelta a la calma.',
+    mainWork: '5 series de 4 min fuerte con 4 min suaves',
     purpose: 'Ampliar el consumo máximo de oxígeno. Duele, pero rinde.',
   },
   strength: {
@@ -134,7 +132,8 @@ export const TEMPLATES: Record<
     hrFactor: 0,
     softCapMinutes: 45,
     title: 'Fuerza',
-    description: 'Trabajo de fuerza o core, fuera de la bici. No suma carga de pedaleo.',
+    mainWork:
+      'Fuera de la bici: sentadilla o prensa 3×8–12, peso muerto rumano 3×8–12, empuje 3×8–12, core 3×30–45 s y 5 min de movilidad. Peso moderado, movimiento controlado. No suma carga de pedaleo',
     purpose: 'Mantener fuerza y estabilidad sin meter fatiga de ciclismo.',
   },
 }
@@ -248,7 +247,15 @@ export function buildWeeklyPlan(input: PlannerInput): PlanDraft {
       scheduled_date: day.date,
       workout_type: day.kind,
       title: template.title,
-      description: template.description,
+      description:
+        day.kind === 'strength'
+          ? `${template.mainWork}.`
+          : formatBikeDescription({
+              kind: day.kind,
+              totalMinutes: minutes,
+              zone: template.zone,
+              mainWork: template.mainWork,
+            }),
       duration_minutes: minutes,
       target_zone: template.zone,
       target_power: input.ftp ? Math.round(input.ftp * template.powerFactor) : null,

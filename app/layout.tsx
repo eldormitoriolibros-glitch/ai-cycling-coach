@@ -23,7 +23,7 @@ export default function RootLayout({
       </head>
       <body className={`${inter.variable} dark font-sans antialiased`}>
         <Nav />
-        <main className="mx-auto max-w-4xl p-6">{children}</main>
+        <main className="mx-auto max-w-4xl px-4 py-5 sm:p-6">{children}</main>
       </body>
     </html>
   )

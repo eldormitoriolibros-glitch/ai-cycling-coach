@@ -32,6 +32,25 @@ describe('pickDuplicateLosers', () => {
     expect(losers).toEqual(['copy'])
   })
 
+  it('drops a Garmin copy even if the start time is a few hours off', () => {
+    const losers = pickDuplicateLosers([
+      row({
+        id: 'original',
+        source: 'strava',
+        start_time: '2026-08-30T10:45:00.000Z',
+        created_at: '2026-08-30T12:00:00.000Z',
+        sample_count: 1000,
+      }),
+      row({
+        id: 'copy',
+        source: 'garmin',
+        start_time: '2026-08-30T07:45:00.000Z',
+        created_at: '2026-08-30T18:00:00.000Z',
+      }),
+    ])
+    expect(losers).toEqual(['copy'])
+  })
+
   it('keeps two distinct rides on the same day', () => {
     const losers = pickDuplicateLosers([
       row({

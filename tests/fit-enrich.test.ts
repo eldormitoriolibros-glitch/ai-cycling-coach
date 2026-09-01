@@ -74,6 +74,16 @@ describe('findMatch', () => {
 
     expect(findMatch(fitToday, [oldRide], new Set())).toBeNull()
   })
+
+  it('matches the same ride when Garmin and Strava start times differ by a few hours', () => {
+    const existing = candidate({
+      id: 'strava',
+      start_time: '2026-08-30T08:45:00.000Z',
+      distance_meters: 42000,
+      moving_seconds: 5400,
+    })
+    expect(findMatch(fitToday, [existing], new Set())?.activity.id).toBe('strava')
+  })
 })
 
 describe('findTimeMatch', () => {

@@ -2,11 +2,12 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { CalendarPlus, Check, X } from 'lucide-react'
+import { CalendarPlus, Check, History, X } from 'lucide-react'
 import { Alert, Button, Card } from '@/components/ui'
 import { createClient } from '@/lib/supabase/client'
 import type { WorkoutStatus } from '@/lib/types/database'
 import { looksCombined, looksStrength, splitCombinedSession } from '@/lib/training/split-sessions'
+import { strengthExercises, blocksForBikeSession } from '@/lib/training/workout-blocks'
 
 export type ScheduledWorkout = {
   id: string
@@ -88,7 +89,7 @@ function statusClass(status: WorkoutStatus): string {
   return 'bg-blue-100 text-blue-800'
 }
 
-export function PlanBoard({ workouts }: { workouts: ScheduledWorkout[] }) {
+export function PlanBoard({ workouts, today }: { workouts: ScheduledWorkout[]; today: string }) {
   const router = useRouter()
   const supabase = createClient()
 
@@ -96,7 +97,12 @@ export function PlanBoard({ workouts }: { workouts: ScheduledWorkout[] }) {
   const [busy, setBusy] = useState<'propose' | 'commit' | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
+  const [showHistory, setShowHistory] = useState(false)
   const splitting = useRef(false)
+
+  const upcoming = workouts.filter((w) => w.scheduled_date >= today)
+  const past = workouts.filter((w) => w.scheduled_date < today)
+  const agenda = showHistory ? workouts : upcoming
 
   useEffect(() => {
     if (splitting.current) return
@@ -270,15 +276,10 @@ export function PlanBoard({ workouts }: { workouts: ScheduledWorkout[] }) {
                       description={w.description}
                       purpose={w.purpose}
                       strength={isStrengthSession(w)}
-                      extra={
-                        w.estimated_load
-                          ? `carga ${w.estimated_load}`
-                          : w.target_power || w.target_hr
-                            ? [w.target_power ? `${w.target_power} W` : null, w.target_hr ? `${w.target_hr} ppm` : null]
-                                .filter(Boolean)
-                                .join(' · ')
-                            : null
-                      }
+                      kind={w.workout_type}
+                      power={w.target_power}
+                      hr={w.target_hr}
+                      extra={w.estimated_load ? `carga ${w.estimated_load}` : null}
                     />
                   ))}
                 </div>
@@ -311,16 +312,29 @@ export function PlanBoard({ workouts }: { workouts: ScheduledWorkout[] }) {
       )}
 
       <Card>
-        <h2 className="text-sm font-medium uppercase tracking-wide text-slate-400">Agenda</h2>
-        {workouts.length === 0 ? (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-sm font-medium uppercase tracking-wide text-slate-400">Agenda</h2>
+          {past.length > 0 && (
+            <Button variant="secondary" onClick={() => setShowHistory((open) => !open)}>
+              <History aria-hidden className="h-4 w-4" />
+              {showHistory ? 'Ocultar anteriores' : `Ver anteriores (${past.length})`}
+            </Button>
+          )}
+        </div>
+        {agenda.length === 0 ? (
           <p className="mt-3 text-sm text-slate-600">
-            Todavía no hay sesiones programadas. Generá una propuesta para arrancar.
+            {workouts.length === 0
+              ? 'Todavía no hay sesiones programadas. Generá una propuesta para arrancar.'
+              : 'No hay sesiones desde hoy. Podés ver el historial o proponer la semana.'}
           </p>
         ) : (
           <div className="mt-4 space-y-5">
-            {groupByDate(workouts).map(([date, sessions]) => (
+            {groupByDate(agenda).map(([date, sessions]) => (
               <div key={date} className="space-y-2">
-                <p className="text-xs font-semibold uppercase tracking-wide text-muted">{weekday(date)}</p>
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted">
+                  {weekday(date)}
+                  {date === today ? ' · Hoy' : date < today ? ' · Pasado' : ''}
+                </p>
                 {sessions.map((w) => (
                   <SessionCard
                     key={w.id}
@@ -329,15 +343,13 @@ export function PlanBoard({ workouts }: { workouts: ScheduledWorkout[] }) {
                     minutes={w.duration_minutes}
                     description={w.description}
                     purpose={w.purpose}
+                    rationale={w.rationale}
                     strength={isStrengthSession(w)}
+                    kind={w.workout_type}
                     status={w.status}
-                    extra={
-                      w.target_power || w.target_hr
-                        ? [w.target_power ? `${w.target_power} W` : null, w.target_hr ? `${w.target_hr} ppm` : null]
-                            .filter(Boolean)
-                            .join(' · ')
-                        : null
-                    }
+                    power={w.target_power}
+                    hr={w.target_hr}
+                    past={date < today}
                     actions={
                       w.status === 'scheduled' ? (
                         <>
@@ -367,9 +379,14 @@ function SessionCard({
   minutes,
   description,
   purpose,
+  rationale,
   extra,
   strength,
+  kind,
   status,
+  power,
+  hr,
+  past,
   actions,
 }: {
   title: string
@@ -377,16 +394,31 @@ function SessionCard({
   minutes: number | null
   description: string | null
   purpose: string | null
+  rationale?: string | null
   extra?: string | null
   strength: boolean
+  kind?: string | null
   status?: WorkoutStatus
+  power?: number | null
+  hr?: number | null
+  past?: boolean
   actions?: React.ReactNode
 }) {
+  const bikeBlocks = strength ? [] : blocksForBikeSession({ description, minutes, zone, kind })
+  const strengthRows = strength ? strengthExercises(description) : []
+  const stats = [
+    { label: 'Duración', value: minutes != null ? `${minutes} min` : '—' },
+    { label: 'Zona', value: zone ?? '—' },
+    { label: 'Potencia', value: power != null ? `${power} W` : '—' },
+    { label: 'Pulso', value: hr != null ? `${hr} ppm` : '—' },
+  ]
+  if (extra) stats.push({ label: 'Carga', value: extra.replace(/^carga\s+/i, '') })
+
   return (
     <div
-      className={`rounded-lg border p-3 space-y-2 ${
-        strength ? 'border-amber-400/40 bg-amber-50/5' : 'border-surface'
-      }`}
+      className={`rounded-lg border p-3 space-y-3 ${
+        past ? 'opacity-70' : ''
+      } ${strength ? 'border-amber-400/40 bg-amber-50/5' : 'border-surface'}`}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
@@ -400,9 +432,6 @@ function SessionCard({
             </span>
             <p className="text-sm font-medium text-foreground">{title}</p>
           </div>
-          <p className="mt-0.5 text-xs text-muted">
-            {[zone, minutes != null ? `${minutes} min` : null, extra].filter(Boolean).join(' · ')}
-          </p>
         </div>
         {status && (
           <span className={`shrink-0 rounded-full px-2 py-1 text-xs font-medium ${statusClass(status)}`}>
@@ -410,8 +439,92 @@ function SessionCard({
           </span>
         )}
       </div>
-      {description && <p className="text-xs text-slate-500">{description}</p>}
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-left text-[11px]">
+          <thead>
+            <tr className="text-muted">
+              {stats.map((s) => (
+                <th key={s.label} className="pb-1 pr-3 font-medium">
+                  {s.label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            <tr className="text-foreground">
+              {stats.map((s) => (
+                <td key={s.label} className="pr-3 tabular-nums">
+                  {s.value}
+                </td>
+              ))}
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      {bikeBlocks.length > 0 && (
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-[11px]">
+            <thead>
+              <tr className="border-b border-surface text-muted">
+                <th className="py-1 pr-2 font-medium">Bloque</th>
+                <th className="py-1 pr-2 font-medium">Tiempo</th>
+                <th className="py-1 font-medium">Intensidad</th>
+              </tr>
+            </thead>
+            <tbody>
+              {bikeBlocks.map((b, i) => (
+                <tr key={`${b.label}-${i}`} className="border-b border-surface/60">
+                  <td className="py-1 pr-2">{b.label}</td>
+                  <td className="py-1 pr-2 tabular-nums">
+                    {b.repeats != null && b.minutes != null
+                      ? `${b.repeats} × ${b.minutes} min`
+                      : b.minutes != null
+                        ? `${b.minutes} min`
+                        : '—'}
+                  </td>
+                  <td className="py-1">{b.intensity ?? '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {strengthRows.length > 0 && (
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-[11px]">
+            <thead>
+              <tr className="border-b border-surface text-muted">
+                <th className="py-1 pr-2 font-medium">Ejercicio</th>
+                <th className="py-1 pr-2 font-medium">Series</th>
+                <th className="py-1 pr-2 font-medium">Reps</th>
+                <th className="py-1 font-medium">Notas</th>
+              </tr>
+            </thead>
+            <tbody>
+              {strengthRows.map((row) => (
+                <tr key={row.exercise} className="border-b border-surface/60">
+                  <td className="py-1 pr-2">{row.exercise}</td>
+                  <td className="py-1 pr-2 tabular-nums">{row.sets}</td>
+                  <td className="py-1 pr-2 tabular-nums">{row.reps}</td>
+                  <td className="py-1 text-muted">{row.note}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {description && bikeBlocks.length === 0 && strengthRows.length === 0 && (
+        <p className="text-xs text-slate-500 whitespace-pre-wrap">{description}</p>
+      )}
+      {description && (bikeBlocks.length > 0 || strengthRows.length > 0) && (
+        <p className="text-xs text-muted">{description}</p>
+      )}
       {purpose && <p className="text-xs italic text-slate-400">{purpose}</p>}
+      {rationale && <p className="text-xs text-slate-500">{rationale}</p>}
       {actions && <div className="flex justify-end gap-2 pt-1">{actions}</div>}
     </div>
   )

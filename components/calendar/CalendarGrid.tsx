@@ -2,9 +2,8 @@
 
 import { useState } from 'react'
 import type { CalendarActivity, WeekData } from '@/lib/calendar/types'
-import { DAY_LABELS } from '@/lib/calendar/weeks'
-import { CALENDAR_GRID_COLS, CALENDAR_GRID_COLS_COMPACT } from './calendar-utils'
 import { CalendarWeekRow } from './CalendarWeekRow'
+import { WeekdayHeader } from './WeekdayHeader'
 import { ActivityTooltip } from './ActivityTooltip'
 
 type CalendarGridProps = {
@@ -17,13 +16,13 @@ type CalendarGridProps = {
 export function CalendarGrid({
   weeks,
   compact = false,
-  showDayNumbers = false,
+  showDayNumbers = !compact,
   monthDividers = false,
 }: CalendarGridProps) {
   const [hoveredActivity, setHoveredActivity] = useState<CalendarActivity | null>(null)
   const [hoverPos, setHoverPos] = useState({ x: 0, y: 0 })
-  const gridCols = compact ? CALENDAR_GRID_COLS_COMPACT : CALENDAR_GRID_COLS
   const today = new Date()
+  const todayInView = weeks.some((w) => today >= w.startDate && today <= w.endDate)
   const maxWeekDistance = weeks.reduce((max, w) => Math.max(max, w.totalDistance), 0)
 
   let lastMonthKey = ''
@@ -31,20 +30,7 @@ export function CalendarGrid({
   return (
     <>
       <div className="space-y-0 divide-y divide-surface">
-        <div className={`grid ${gridCols} gap-0 pb-2`}>
-          <div />
-          {DAY_LABELS.map((d) => (
-            <div
-              key={d}
-              className={`text-center font-semibold text-muted uppercase ${
-                compact ? 'text-[9px]' : 'text-xs'
-              }`}
-            >
-              {d}
-            </div>
-          ))}
-          <div />
-        </div>
+        <WeekdayHeader today={todayInView ? today : undefined} compact={compact} withSideColumns={!compact} />
 
         {weeks.map((week, wi) => {
           const weekMonthKey = `${week.startDate.getFullYear()}-${week.startDate.getMonth()}`
@@ -61,7 +47,7 @@ export function CalendarGrid({
               <CalendarWeekRow
                 week={week}
                 compact={compact}
-                showDayNumbers={showDayNumbers || compact}
+                showDayNumbers={showDayNumbers}
                 maxWeekDistance={maxWeekDistance}
                 today={today}
                 onHoverActivity={(act, pos) => {

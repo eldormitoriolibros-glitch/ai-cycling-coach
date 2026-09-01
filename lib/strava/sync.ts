@@ -1,5 +1,5 @@
 import { createAdminClient } from '@/lib/supabase/admin'
-import { removeDuplicateManualActivities } from '@/lib/training/dedupe'
+import { removeDuplicateManualActivities, removeDuplicateActivities } from '@/lib/training/dedupe'
 import { recomputeActivityLoads, recomputeTrainingLoad } from '@/lib/training/rollup'
 import { getActivity, listActivities, StravaError } from './client'
 import {
@@ -115,6 +115,7 @@ export async function syncActivities(
 
     // A ride imported from CSV may now exist on Strava as well.
     await removeDuplicateManualActivities(userId)
+    await removeDuplicateActivities(userId)
 
     // Normalized Power only exists after the backfill, so redo the estimates.
     await recomputeActivityLoads(userId)

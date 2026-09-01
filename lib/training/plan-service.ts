@@ -12,6 +12,7 @@ import {
 } from './planner2'
 import { computeReadiness } from '@/lib/training/readiness'
 import { splitCombinedSession } from './split-sessions'
+import { formatBikeDescription } from './workout-blocks'
 
 import 'server-only'
 
@@ -228,12 +229,25 @@ export async function coachPlanToDraft(userId: string, plan: CoachPlanInput): Pr
     const minutes = clampMinutes(w.duration_minutes)
     const power = kind === 'strength' || !ftp || !template.powerFactor ? null : Math.round(ftp * template.powerFactor)
     const hr = kind === 'strength' || !maxHr || !template.hrFactor ? null : Math.round(maxHr * template.hrFactor)
+    const rawDescription = w.description?.trim()
+    const description =
+      kind === 'strength'
+        ? (rawDescription || `${template.mainWork}.`).slice(0, 1000)
+        : (rawDescription && /entrada|vuelta a la calma/i.test(rawDescription)
+            ? rawDescription
+            : formatBikeDescription({
+                kind,
+                totalMinutes: minutes,
+                zone: (w.target_zone?.trim() || template.zone).slice(0, 20),
+                mainWork: rawDescription || template.mainWork,
+              })
+          ).slice(0, 1000)
 
     return {
       scheduled_date: w.date,
       workout_type: kind,
       title: (w.title?.trim() || template.title).slice(0, 120),
-      description: (w.description?.trim() || template.description).slice(0, 1000),
+      description,
       duration_minutes: minutes,
       target_zone: (w.target_zone?.trim() || template.zone).slice(0, 20),
       target_power: power,
