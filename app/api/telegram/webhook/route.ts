@@ -3,8 +3,10 @@ import { safeEqual } from '@/lib/crypto'
 import { telegramEnv } from '@/lib/env'
 import { askCoach } from '@/lib/coach'
 import { buildDailyNudge } from '@/lib/coach/nudge'
+import { formatWeekAgenda } from '@/lib/coach/week-agenda'
 import { sendMessage, type TelegramUpdate } from '@/lib/telegram/client'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { splitPlanBlock } from '@/lib/training/coach-plan'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -13,7 +15,8 @@ const HELP = [
   'Soy tu entrenador de ciclismo.',
   '',
   'Escribime lo que quieras, por ejemplo: "¿qué entreno hoy?".',
-  'Comando rápido: /hoy te devuelve la sesión del día.',
+  'Comandos: /hoy la sesión del día. /semana el plan de esta semana.',
+  'Para cambiar el plan, pedímelo (ej. "pasá el umbral al jueves") y después confirmá con un sí.',
   '',
   'Para vincular esta cuenta, generá un código en la web (Conexiones) y mandámelo así:',
   '/vincular abc123def4',
@@ -75,7 +78,7 @@ export async function POST(request: Request) {
 
     const { data: linked } = await supabase
       .from('users')
-      .select('id')
+      .select('id, timezone')
       .eq('telegram_chat_id', chatId)
       .maybeSingle()
 
@@ -94,8 +97,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true })
     }
 
+    if (text === '/semana') {
+      await sendMessage(chatId, await formatWeekAgenda(linked.id, linked.timezone || 'UTC'))
+      return NextResponse.json({ ok: true })
+    }
+
     const reply = await askCoach(linked.id, text, 'telegram')
-    await sendMessage(chatId, reply)
+    await sendMessage(chatId, splitPlanBlock(reply).text || reply)
   } catch (err) {
     console.error('Telegram webhook failed', err)
     await sendMessage(chatId, 'Se me cruzaron los cables. Probá de nuevo en un rato.').catch(() => {})

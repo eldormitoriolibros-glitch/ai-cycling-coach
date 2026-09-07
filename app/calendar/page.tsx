@@ -127,7 +127,7 @@ export default function CalendarPage() {
                 onClick={() => setViewMode(mode.id)}
                 className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${
                   viewMode === mode.id
-                    ? 'bg-orange-500 text-white'
+                    ? 'bg-accent-500 text-white'
                     : 'text-muted hover:text-foreground'
                 }`}
               >

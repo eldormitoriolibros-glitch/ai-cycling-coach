@@ -19,6 +19,25 @@ export function dayOfWeek(date: string): number {
   return new Date(`${date}T00:00:00Z`).getUTCDay()
 }
 
+/** Monday of the ISO-style week that contains `date` (`YYYY-MM-DD`). */
+export function startOfWeek(date: string): string {
+  const dow = dayOfWeek(date)
+  return addDays(date, dow === 0 ? -6 : 1 - dow)
+}
+
+export function endOfWeek(date: string): string {
+  return addDays(startOfWeek(date), 6)
+}
+
+export function formatWeekRange(start: string, end: string): string {
+  const a = new Date(`${start}T12:00:00Z`)
+  const b = new Date(`${end}T12:00:00Z`)
+  const sameMonth = a.getUTCMonth() === b.getUTCMonth()
+  const startLabel = a.toLocaleDateString('es-AR', { day: 'numeric', month: sameMonth ? undefined : 'short' })
+  const endLabel = b.toLocaleDateString('es-AR', { day: 'numeric', month: 'short' })
+  return `${startLabel} – ${endLabel}`
+}
+
 export function eachDay(from: string, to: string): string[] {
   const days: string[] = []
   for (let t = Date.parse(`${from}T00:00:00Z`); t <= Date.parse(`${to}T00:00:00Z`); t += DAY_MS) {

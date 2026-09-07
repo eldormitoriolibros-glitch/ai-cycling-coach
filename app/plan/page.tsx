@@ -22,6 +22,7 @@ export default async function PlanPage() {
   const { data: profile } = await supabase.from('users').select('timezone').eq('id', user.id).maybeSingle()
   const today = localDateKey(new Date(), profile?.timezone || 'UTC')
   const historyFrom = addDays(today, -56)
+  const horizon = addDays(today, 35)
 
   const { data: workouts } = await supabase
     .from('workouts')
@@ -30,15 +31,16 @@ export default async function PlanPage() {
     )
     .eq('user_id', user.id)
     .gte('scheduled_date', historyFrom)
+    .lte('scheduled_date', horizon)
     .order('scheduled_date', { ascending: true })
-    .limit(120)
+    .limit(200)
 
   return (
     <div className="space-y-4">
       <h1 className="text-2xl font-bold">Plan</h1>
       <p className="text-sm text-slate-600">
-        La semana se calcula con reglas fijas a partir de tu carga, tu forma y tu disponibilidad. El
-        entrenador solo explica el resultado, no inventa los números.
+        Mirás una semana completa o un ciclo de 4. El diseño de cada sesión está en el detalle.
+        Para cambiar algo, pedíselo al entrenador por chat o Telegram y confirmá el cambio.
       </p>
 
       <PlanBoard workouts={workouts ?? []} today={today} />

@@ -49,7 +49,7 @@ export function CalendarWeekRow({
         <div className="mb-2 flex items-baseline justify-between gap-3 md:hidden">
           <p className="min-w-0 text-xs font-medium leading-snug text-muted">{week.label}</p>
           {week.totalDistance > 0 && (
-            <p className="shrink-0 text-xs font-bold tabular-nums text-orange-500">
+            <p className="shrink-0 text-xs font-bold tabular-nums text-accent-600 dark:text-accent-400">
               {formatCalendarDistance(week.totalDistance)}
               {week.totalSeconds > 0 && (
                 <span className="font-medium text-muted"> · {formatCalendarDuration(week.totalSeconds)}</span>
@@ -65,7 +65,7 @@ export function CalendarWeekRow({
             <p className="text-xs font-medium text-muted">{week.label}</p>
             {week.totalDistance > 0 && (
               <>
-                <p className="text-base font-bold tabular-nums text-orange-500">
+                <p className="text-base font-bold tabular-nums text-accent-600 dark:text-accent-400">
                   {formatCalendarDistance(week.totalDistance)}
                 </p>
                 {week.totalSeconds > 0 && (
@@ -99,14 +99,14 @@ export function CalendarWeekRow({
           <div className="hidden min-w-0 justify-start pl-2 md:flex">
             {week.totalDistance > 0 && (
               <div
-                className="flex min-h-[44px] min-w-0 flex-col justify-center rounded-md bg-orange-100 px-2.5 py-1.5 dark:bg-orange-950/40"
+                className="flex min-h-[44px] min-w-0 flex-col justify-center rounded-md bg-accent-500/10 px-2.5 py-1.5 dark:bg-accent-500/15"
                 style={{ width: `${barWidth}%`, maxWidth: '100%' }}
               >
-                <span className="text-xs font-bold tabular-nums text-orange-600 dark:text-orange-400">
+                <span className="text-xs font-bold tabular-nums text-accent-700 dark:text-accent-300">
                   {formatCalendarDistance(week.totalDistance)}
                 </span>
                 {week.totalSeconds > 0 && (
-                  <span className="text-[10px] tabular-nums text-orange-700/80 dark:text-orange-300/80">
+                  <span className="text-[10px] tabular-nums text-accent-700/80 dark:text-accent-300/80">
                     {formatCalendarDurationLong(week.totalSeconds)}
                   </span>
                 )}
@@ -141,13 +141,13 @@ function DayCell({
     <div
       className={`flex min-w-0 flex-col items-center justify-start gap-0.5 px-0.5 ${
         compact ? 'min-h-[36px]' : 'min-h-[52px] md:min-h-[72px]'
-      } ${isToday ? 'rounded-lg bg-orange-500/10 py-1' : 'py-1'}`}
+      } ${isToday ? 'rounded-lg bg-accent-500/10 py-1' : 'py-1'}`}
     >
       {showDayNumbers && (
         <span
           className={`flex h-5 w-5 items-center justify-center text-[11px] leading-none ${
             isToday
-              ? 'rounded-full bg-orange-500 font-bold text-white'
+              ? 'rounded-full bg-accent-500 font-bold text-white'
               : activities.length > 0
                 ? 'font-medium text-foreground'
                 : 'text-muted'
@@ -158,7 +158,7 @@ function DayCell({
       )}
 
       {visible.length === 0 && (
-        <span className={`mt-0.5 h-1.5 w-1.5 rounded-full ${isToday ? 'bg-orange-500' : 'bg-slate-500/40'}`} />
+        <span className={`mt-0.5 h-1.5 w-1.5 rounded-full ${isToday ? 'bg-accent-500' : 'bg-slate-500/40'}`} />
       )}
 
       {visible.map((act) => (
@@ -206,7 +206,7 @@ function ActivityMark({
       </span>
       {!compact && (
         <span
-          className={`hidden ${color} ${getBubbleSize(km, 'full')} flex-col items-center justify-center rounded-full font-semibold leading-tight text-white transition-all hover:ring-2 hover:ring-orange-400 hover:ring-offset-2 md:flex`}
+          className={`hidden ${color} ${getBubbleSize(km, 'full')} flex-col items-center justify-center rounded-full font-semibold leading-tight text-white transition-all hover:ring-2 hover:ring-accent-400 hover:ring-offset-2 md:flex`}
         >
           {km >= 1 ? (
             <>

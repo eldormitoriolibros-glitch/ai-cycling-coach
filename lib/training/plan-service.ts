@@ -7,11 +7,11 @@ import {
   loadFor,
   TEMPLATES,
   type PlanDraft,
-  type SessionKind,
   type WorkoutDraft,
 } from './planner2'
 import { computeReadiness } from '@/lib/training/readiness'
 import { splitCombinedSession } from './split-sessions'
+import { expandIntervalShorthand, looksGenericEnduranceText, resolveSessionKind, resolveSessionZone } from './session-prescription'
 import { formatBikeDescription } from './workout-blocks'
 
 import 'server-only'
@@ -60,9 +60,19 @@ async function countLoadingWeeks(userId: string, startDate: string): Promise<num
   return count
 }
 
-export async function proposeWeeklyPlan(userId: string, startDate?: string): Promise<PlanProposal> {
-  const supabase = createAdminClient()
+type PlannerContext = {
+  timeZone: string
+  availability: { day_of_week: number; bike_minutes: number; strength_minutes: number }[]
+  ftp: number | null
+  maxHr: number | null
+  chronicLoad: number | null
+  form: number | null
+  readinessScore: number
+  experience: 'beginner' | 'intermediate' | 'advanced' | null
+}
 
+async function loadPlannerContext(userId: string): Promise<PlannerContext> {
+  const supabase = createAdminClient()
   const [{ data: profile }, { data: metrics }, { data: availability }, { data: load }, { data: recovery }, { data: sleep }] =
     await Promise.all([
       supabase.from('users').select('timezone, experience_level').eq('id', userId).maybeSingle(),
@@ -93,8 +103,6 @@ export async function proposeWeeklyPlan(userId: string, startDate?: string): Pro
         .limit(7),
     ])
 
-  const timeZone = profile?.timezone || 'UTC'
-  const start = startDate ?? tomorrowIn(timeZone)
   const latestRecovery = (recovery ?? []).length ? (recovery as any[])[0] : null
   const latestSleep = (sleep ?? []).length ? (sleep as any[])[0] : null
   const baselineResting = (recovery ?? []).length ? (recovery as any[]).reduce((s, r) => s + (r.resting_hr ?? 0), 0) / (recovery as any[]).length : null
@@ -114,8 +122,8 @@ export async function proposeWeeklyPlan(userId: string, startDate?: string): Pro
     spo2: (latestRecovery as any)?.spo2_avg ?? null,
   })
 
-  const draft = buildWeeklyPlan({
-    startDate: start,
+  return {
+    timeZone: profile?.timezone || 'UTC',
     availability: availability ?? [],
     ftp: metrics?.ftp ?? null,
     maxHr: metrics?.max_hr ?? null,
@@ -123,21 +131,80 @@ export async function proposeWeeklyPlan(userId: string, startDate?: string): Pro
     form: load?.form ?? null,
     readinessScore: readinessResult.score,
     experience: profile?.experience_level ?? null,
-    loadingWeeksInBlock: await countLoadingWeeks(userId, start),
-  })
+  }
+}
 
-  const { count } = await supabase
+function draftFromContext(ctx: PlannerContext, start: string, loadingWeeksInBlock: number): PlanDraft {
+  return buildWeeklyPlan({
+    startDate: start,
+    availability: ctx.availability,
+    ftp: ctx.ftp,
+    maxHr: ctx.maxHr,
+    chronicLoad: ctx.chronicLoad,
+    form: ctx.form,
+    readinessScore: ctx.readinessScore,
+    experience: ctx.experience,
+    loadingWeeksInBlock,
+  })
+}
+
+async function countScheduledInRange(userId: string, from: string, to: string): Promise<number> {
+  const { count } = await createAdminClient()
     .from('workouts')
     .select('id', { count: 'exact', head: true })
     .eq('user_id', userId)
     .eq('status', 'scheduled')
-    .gte('scheduled_date', draft.startDate)
-    .lte('scheduled_date', draft.endDate)
+    .gte('scheduled_date', from)
+    .lte('scheduled_date', to)
+  return count ?? 0
+}
+
+export async function proposeWeeklyPlan(userId: string, startDate?: string): Promise<PlanProposal> {
+  const ctx = await loadPlannerContext(userId)
+  const start = startDate ?? tomorrowIn(ctx.timeZone)
+  const draft = draftFromContext(ctx, start, await countLoadingWeeks(userId, start))
+  return {
+    draft,
+    rationale: await explain(draft),
+    replacesExisting: await countScheduledInRange(userId, draft.startDate, draft.endDate),
+  }
+}
+
+/** Four-week block. Uncommitted weeks still advance 3 carga + 1 descarga. */
+export async function proposeCyclePlan(userId: string, startDate?: string): Promise<PlanProposal> {
+  const ctx = await loadPlannerContext(userId)
+  const start = startDate ?? tomorrowIn(ctx.timeZone)
+  let loadingWeeks = await countLoadingWeeks(userId, start)
+  const drafts: PlanDraft[] = []
+
+  for (let i = 0; i < BLOCK_LENGTH; i++) {
+    const weekStart = addDays(start, i * 7)
+    const draft = draftFromContext(ctx, weekStart, loadingWeeks)
+    drafts.push(draft)
+    loadingWeeks = draft.emphasis === 'recovery' ? 0 : loadingWeeks + 1
+  }
+
+  const workouts = drafts.flatMap((d) => d.workouts).slice(0, 32)
+  const notes = drafts.flatMap((d, i) => d.notes.map((n) => `Semana ${i + 1}: ${n}`))
+  const draft: PlanDraft = {
+    startDate: drafts[0].startDate,
+    endDate: drafts[drafts.length - 1].endDate,
+    emphasis: drafts.some((d) => d.emphasis === 'build')
+      ? 'build'
+      : drafts.every((d) => d.emphasis === 'recovery')
+        ? 'recovery'
+        : 'maintenance',
+    blockPosition: drafts[0].blockPosition,
+    weeklyTargetLoad: drafts.reduce((s, d) => s + d.weeklyTargetLoad, 0),
+    plannedLoad: workouts.reduce((sum, w) => sum + w.estimated_load, 0),
+    workouts,
+    notes,
+  }
 
   return {
     draft,
     rationale: await explain(draft),
-    replacesExisting: count ?? 0,
+    replacesExisting: await countScheduledInRange(userId, draft.startDate, draft.endDate),
   }
 }
 
@@ -155,16 +222,6 @@ export type CoachPlanInput = {
   emphasis?: 'recovery' | 'maintenance' | 'build'
   workouts: CoachSession[]
 }
-
-const SESSION_KINDS: SessionKind[] = [
-  'recovery',
-  'endurance',
-  'long',
-  'tempo',
-  'threshold',
-  'vo2max',
-  'strength',
-]
 
 function expandCoachSessions(sessions: CoachSession[]): CoachSession[] {
   const out: CoachSession[] = []
@@ -217,29 +274,44 @@ export async function coachPlanToDraft(userId: string, plan: CoachPlanInput): Pr
     (plan.workouts ?? [])
       .filter((w) => w && /^\d{4}-\d{2}-\d{2}$/.test(String(w.date)))
       .sort((a, b) => a.date.localeCompare(b.date))
-  ).slice(0, 14)
+  ).slice(0, 32)
 
   const workouts: WorkoutDraft[] = sessions.map((w) => {
-    const kind: SessionKind = (SESSION_KINDS as string[]).includes(w.type)
-      ? (w.type as SessionKind)
-      : w.type === 'strength'
-        ? 'strength'
-        : 'endurance'
+    const kind = resolveSessionKind({
+      type: w.type,
+      title: w.title,
+      description: w.description,
+      zone: w.target_zone,
+    })
     const template = TEMPLATES[kind]
     const minutes = clampMinutes(w.duration_minutes)
+    const zone = resolveSessionZone({
+      zone: w.target_zone,
+      title: w.title,
+      description: w.description,
+      kind,
+    }).slice(0, 20)
     const power = kind === 'strength' || !ftp || !template.powerFactor ? null : Math.round(ftp * template.powerFactor)
     const hr = kind === 'strength' || !maxHr || !template.hrFactor ? null : Math.round(maxHr * template.hrFactor)
     const rawDescription = w.description?.trim()
+    const fromTitle = expandIntervalShorthand(w.title)
+    const mainWork =
+      fromTitle && (!rawDescription || looksGenericEnduranceText(rawDescription))
+        ? fromTitle
+        : rawDescription && !looksGenericEnduranceText(rawDescription)
+          ? rawDescription
+          : fromTitle || template.mainWork
+    const keepRaw = Boolean(rawDescription && /entrada|vuelta a la calma/i.test(rawDescription) && !looksGenericEnduranceText(rawDescription) && !fromTitle)
     const description =
       kind === 'strength'
         ? (rawDescription || `${template.mainWork}.`).slice(0, 1000)
-        : (rawDescription && /entrada|vuelta a la calma/i.test(rawDescription)
+        : (keepRaw && rawDescription
             ? rawDescription
             : formatBikeDescription({
                 kind,
                 totalMinutes: minutes,
-                zone: (w.target_zone?.trim() || template.zone).slice(0, 20),
-                mainWork: rawDescription || template.mainWork,
+                zone,
+                mainWork,
               })
           ).slice(0, 1000)
 
@@ -249,11 +321,11 @@ export async function coachPlanToDraft(userId: string, plan: CoachPlanInput): Pr
       title: (w.title?.trim() || template.title).slice(0, 120),
       description,
       duration_minutes: minutes,
-      target_zone: (w.target_zone?.trim() || template.zone).slice(0, 20),
-      target_power: power,
-      target_hr: hr,
+      target_zone: zone,
+      target_power: power != null ? Math.min(1000, Math.max(30, power)) : null,
+      target_hr: hr != null ? Math.min(250, Math.max(60, hr)) : null,
       purpose: template.purpose,
-      estimated_load: kind === 'strength' ? 0 : loadFor(minutes, template.intensityFactor),
+      estimated_load: kind === 'strength' ? 0 : Math.min(1000, loadFor(minutes, template.intensityFactor)),
     }
   })
 

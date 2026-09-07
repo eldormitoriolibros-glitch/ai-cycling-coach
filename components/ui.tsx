@@ -13,8 +13,8 @@ export function Button({
   variant?: 'primary' | 'secondary' | 'danger'
 }) {
   const variants = {
-    primary: 'bg-slate-900 text-white hover:bg-slate-800',
-    secondary: 'bg-surface text-foreground border border-surface hover:brightness-95',
+    primary: 'bg-accent-600 text-white shadow-sm shadow-accent-600/20 hover:bg-accent-500',
+    secondary: 'bg-surface text-foreground border border-surface hover:border-accent-500/40',
     danger: 'bg-red-600 text-white hover:bg-red-700',
   }
 
@@ -24,7 +24,7 @@ export function Button({
       disabled={disabled || loading}
       className={cn(
         'inline-flex items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition',
-        'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900',
+        'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-500',
         'disabled:cursor-not-allowed disabled:opacity-50',
         variants[variant],
         className
@@ -83,7 +83,7 @@ export function Field({
 
 const controlStyles =
   'w-full rounded-md border border-surface px-3 py-2 text-sm shadow-sm text-foreground placeholder:text-muted ' +
-  'focus:outline-none focus:ring-1 focus:ring-slate-900 ' +
+  'focus:outline-none focus:border-accent-500/60 focus:ring-1 focus:ring-accent-500/60 ' +
   'disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400'
 
 export function Input({ className, ...props }: React.InputHTMLAttributes<HTMLInputElement>) {
@@ -121,7 +121,7 @@ export function Select({ className, ...props }: React.SelectHTMLAttributes<HTMLS
 
 export function Card({ className, children }: { className?: string; children: React.ReactNode }) {
   return (
-    <div className={cn('rounded-lg border border-surface bg-surface p-6 shadow-sm', className)}>
+    <div className={cn('rounded-xl border border-surface bg-surface p-6 shadow-sm', className)}>
       {children}
     </div>
   )

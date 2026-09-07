@@ -45,4 +45,17 @@ describe('parseWorkoutBlocks', () => {
     expect(blocks.map((b) => b.label)).toContain('Entrada en calor')
     expect(blocks.map((b) => b.label)).toContain('Vuelta a la calma')
   })
+
+  it('reads 3x10m Z4 from the title even if the description is a generic Z2', () => {
+    const blocks = blocksForBikeSession({
+      title: 'Bici 3x10m Z4/Sweet Spot',
+      description: '15 min de entrada en calor en Z1–Z2. Ritmo constante en Z2. Tenés que poder mantener una conversación todo el rato. 10 min de vuelta a la calma en Z1.',
+      minutes: 120,
+      zone: 'Z2',
+      kind: 'endurance',
+    })
+    expect(blocks.map((b) => b.label)).toContain('Intervalos')
+    expect(blocks.find((b) => b.label === 'Intervalos')).toMatchObject({ repeats: 3, minutes: 10, intensity: 'Z4' })
+    expect(blocks.some((b) => b.label === 'Bloque principal' && b.intensity === 'Z2')).toBe(false)
+  })
 })

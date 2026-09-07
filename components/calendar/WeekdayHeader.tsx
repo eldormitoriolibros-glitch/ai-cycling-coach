@@ -26,7 +26,7 @@ export function WeekdayHeader({ today, compact = false, withSideColumns = false 
           <div
             key={d}
             className={`min-w-0 text-center font-semibold uppercase tracking-wide ${
-              isToday ? 'text-orange-500' : 'text-muted'
+              isToday ? 'text-accent-600 dark:text-accent-400' : 'text-muted'
             } ${compact ? 'text-[10px]' : 'text-[10px] sm:text-xs'}`}
           >
             {isToday && (

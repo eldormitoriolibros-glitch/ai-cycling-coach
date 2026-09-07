@@ -86,14 +86,18 @@ function MonthDay({
     <div className="flex min-h-[52px] flex-col items-center gap-0.5 py-0.5">
       <span
         className={`text-[10px] leading-none ${
-          isToday ? 'font-bold text-orange-500' : hasActivity ? 'font-medium text-foreground' : 'text-muted'
+          isToday
+            ? 'font-bold text-accent-600 dark:text-accent-400'
+            : hasActivity
+              ? 'font-medium text-foreground'
+              : 'text-muted'
         }`}
       >
         {cell.date.getDate()}
       </span>
 
       {!hasActivity && isToday && (
-        <span className="text-[8px] font-bold text-orange-500">Hoy</span>
+        <span className="text-[8px] font-bold text-accent-600 dark:text-accent-400">Hoy</span>
       )}
 
       {!hasActivity && !isToday && <span className="text-[8px] text-muted/40">·</span>}
@@ -121,7 +125,7 @@ function ActivityBubble({
   return (
     <Link href={`/activities/${act.id}`} className="flex flex-col items-center">
       <div
-        className={`${getActivityColor(act.sport_type)} ${getBubbleSize(km, 'mini')} rounded-full flex flex-col items-center justify-center text-white font-semibold cursor-pointer hover:ring-2 hover:ring-offset-1 hover:ring-orange-400 transition-all leading-none`}
+        className={`${getActivityColor(act.sport_type)} ${getBubbleSize(km, 'mini')} rounded-full flex flex-col items-center justify-center text-white font-semibold cursor-pointer hover:ring-2 hover:ring-offset-1 hover:ring-accent-400 transition-all leading-none`}
         onMouseEnter={(e) => onHoverActivity?.(act, { x: e.clientX, y: e.clientY })}
         onMouseLeave={() => onHoverActivity?.(null)}
         title={act.title ?? formatCalendarDistance(act.distance_meters)}

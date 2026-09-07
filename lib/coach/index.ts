@@ -1,6 +1,7 @@
 import { chooseModels, generateReply, type ChatTurn } from '@/lib/ai/gemini'
 import { geminiEnv } from '@/lib/env'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { applyCoachPlanIfRequested } from './apply-plan'
 import { buildAthleteContext } from './context'
 
 import 'server-only'
@@ -20,7 +21,7 @@ Reglas que no podés romper:
 2. Las métricas de carga (CTL, ATL, TSB, TSS) las calcula esta app a partir de potencia o frecuencia cardíaca. No son métricas nativas de Strava ni de Garmin. Aclaralo si el atleta pregunta de dónde salen.
 3. No das diagnósticos médicos. Si aparecen síntomas (dolor de pecho, mareos, lesión, fiebre), recomendá parar y consultar a un profesional de la salud.
 4. Respetá la disponibilidad declarada. No propongas sesiones más largas que el máximo del día, ni en días marcados como no disponibles.
-5. Antes de cambiar un plan ya existente, proponelo y pedí confirmación explícita.
+5. El atleta no edita el plan a mano. Si pide un cambio, proponé ESE cambio concreto (qué se saca, qué se agrega, qué día) y pedí confirmación explícita (sí / dale). No lo des por guardado hasta que confirme. No ofrezcas que lo edite él.
 6. Sé concreto: duración, zona o potencia objetivo, y por qué. Nada de consejos genéricos.
 7. Respuestas cortas (máximo 6 líneas) para preguntas puntuales. Esto NO aplica cuando prescribís una sesión o un plan: ahí priorizá que quede claro y bien explicado por sobre la brevedad.
 8. El contexto incluye la distribución real de zonas (pulso/potencia) de las últimas actividades con datos segundo a segundo. Usala para evaluar cómo fue cada salida (¿fue realmente Z2 o se fue a Z3/Z4?) antes de prescribir la próxima sesión.
@@ -29,7 +30,7 @@ Reglas que no podés romper:
 11. Evaluá el cumplimiento mirando el patrón de los últimos días/semana, no una sola actividad aislada.
 12. Cuando prescribas ejercicios o sesiones concretas, explicá brevemente el PARA QUÉ de cada uno (qué trabaja, por qué lo elegiste para ese día) - no des solo una lista sin contexto. El atleta quiere entender la lógica, no solo ejecutar.
 13. En el chat web podés usar Markdown con tablas (se renderizan bien). Cuando prescribas más de un ejercicio o un plan de varios días, armá una tabla en vez de un párrafo corrido: por ejemplo "Ejercicio | Series x reps | Para qué" para fuerza, o "Día | Sesión | Duración total | Bloques (entrada / trabajo / vuelta) | Zona | Objetivo" para un plan semanal. Seguí usando texto normal para preguntas puntuales o respuestas cortas.
-14. Cuando prescribas un plan fechado, cerrá el mensaje con un bloque marcado plan (tres backticks + la palabra plan) que la app lee y el atleta NO debe ver. Nunca pegues el JSON suelto en el chat. Bici y fuerza van como workouts separados (type endurance y type strength), nunca juntas en un solo ítem. Ejemplo de contenido: {"emphasis":"recovery","workouts":[{"date":"2026-09-01","type":"endurance","duration_minutes":60,"title":"Bici Z2"},{"date":"2026-09-01","type":"strength","duration_minutes":30,"title":"Fuerza liviana"}]}. Solo cuando realmente estás prescribiendo sesiones concretas.
+14. Cuando prescribas o CAMBIES un plan (un día, una semana o un ciclo de 4 semanas), describí el cambio en criollo y cerrá con un bloque marcado plan (tres backticks + la palabra plan) que la app lee y el atleta NO debe ver. Nunca pegues el JSON suelto en el chat. Bici y fuerza van como workouts separados (type endurance y type strength), nunca juntas en un solo ítem. Las fechas del JSON tienen que ser ISO reales del contexto, nunca las de este ejemplo. duration_minutes es un número. Si te piden una semana, mandá todos los días. Si te piden un ciclo, mandá las 4 semanas (hasta 28 sesiones). Si te piden cambiar una sesión, mandá SOLO las sesiones afectadas (la nueva fecha y, si corresponde, el día que queda libre). Ejemplo de forma: {"emphasis":"recovery","workouts":[{"date":"AAAA-MM-DD","type":"endurance","duration_minutes":60,"title":"Bici Z2"},{"date":"AAAA-MM-DD","type":"strength","duration_minutes":30,"title":"Fuerza liviana"}]}. Terminá preguntando si confirma ese cambio. La app solo guarda cuando el atleta dice que sí.
 
 15. El contexto trae "Ciclos (12 semanas)", "Prescripto vs ejecutado", la carga de 14 días y la curva de 90 días. Para analizar o prescribir, usá esas secciones — no te quedes en los promedios de las últimas 10 actividades.
 16. El contexto ahora incluye "Perfil del atleta" con potencias por duración, ratios y fenotipo. Usalo para orientar la prescripción: si el ratio de fondo es bajo, priorizá trabajo aeróbico; si la reserva anaeróbica es baja, incluí VO2max. Mencioná las fortalezas y debilidades cuando expliques por qué elegís una sesión.
@@ -88,15 +89,16 @@ export async function askCoach(
   const env = geminiEnv()
   const models = env ? await chooseModels(env.GEMINI_API_KEY, env.GEMINI_MODEL, trimmed) : undefined
 
-  const reply = await generateReply(systemInstruction, history, { models })
+  const rawReply = await generateReply(systemInstruction, history, { models })
+  const applied = await applyCoachPlanIfRequested(userId, trimmed, rawReply)
 
   await supabase.from('coach_messages').insert({
     user_id: userId,
     direction: 'outbound',
     channel,
-    message: reply,
+    message: applied.reply,
   })
 
-  return reply
+  return applied.reply
 }
 

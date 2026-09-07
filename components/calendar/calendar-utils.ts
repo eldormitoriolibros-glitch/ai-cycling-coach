@@ -3,7 +3,7 @@ export function getActivityColor(sportType: string | null): string {
   if (s.includes('run')) return 'bg-green-500'
   if (s.includes('swim')) return 'bg-blue-400'
   if (s.includes('weight') || s.includes('strength')) return 'bg-yellow-500'
-  return 'bg-orange-500'
+  return 'bg-accent-500'
 }
 
 export function getBubbleSize(distanceKm: number, variant: 'full' | 'compact' | 'mini' = 'full'): string {

@@ -1,13 +1,14 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { CalendarPlus, Check, History, X } from 'lucide-react'
+import { CalendarPlus, Check, ChevronLeft, ChevronRight, Layers, X } from 'lucide-react'
 import { Alert, Button, Card } from '@/components/ui'
 import { createClient } from '@/lib/supabase/client'
 import type { WorkoutStatus } from '@/lib/types/database'
 import { looksCombined, looksStrength, splitCombinedSession } from '@/lib/training/split-sessions'
-import { strengthExercises, blocksForBikeSession } from '@/lib/training/workout-blocks'
+import { addDays, eachDay, endOfWeek, formatWeekRange, startOfWeek } from '@/lib/training/dates'
+import { SessionCard } from '@/components/plan/SessionCard'
 
 export type ScheduledWorkout = {
   id: string
@@ -56,13 +57,6 @@ const EMPHASIS_LABEL: Record<Draft['emphasis'], string> = {
   build: 'Carga',
 }
 
-const STATUS_LABEL: Record<WorkoutStatus, string> = {
-  scheduled: 'Programado',
-  completed: 'Hecho',
-  skipped: 'Saltado',
-  moved: 'Movido',
-}
-
 function weekday(date: string): string {
   return new Intl.DateTimeFormat('es-AR', { weekday: 'short', day: 'numeric', month: 'short' }).format(
     new Date(`${date}T12:00:00Z`)
@@ -83,10 +77,11 @@ function groupByDate<T extends { scheduled_date: string }>(items: T[]): Array<[s
   return Array.from(map.entries())
 }
 
-function statusClass(status: WorkoutStatus): string {
-  if (status === 'completed') return 'bg-green-100 text-green-800'
-  if (status === 'skipped') return 'bg-slate-100 text-slate-500'
-  return 'bg-blue-100 text-blue-800'
+function weekStats(sessions: ScheduledWorkout[]) {
+  const minutes = sessions.reduce((s, w) => s + (w.duration_minutes ?? 0), 0)
+  const bike = sessions.filter((w) => !isStrengthSession(w)).length
+  const strength = sessions.filter((w) => isStrengthSession(w)).length
+  return { minutes, bike, strength }
 }
 
 export function PlanBoard({ workouts, today }: { workouts: ScheduledWorkout[]; today: string }) {
@@ -94,15 +89,25 @@ export function PlanBoard({ workouts, today }: { workouts: ScheduledWorkout[]; t
   const supabase = createClient()
 
   const [proposal, setProposal] = useState<Proposal | null>(null)
-  const [busy, setBusy] = useState<'propose' | 'commit' | null>(null)
+  const [busy, setBusy] = useState<'propose' | 'cycle' | 'commit' | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
-  const [showHistory, setShowHistory] = useState(false)
+  const [view, setView] = useState<'week' | 'cycle'>('week')
+  const [weekStart, setWeekStart] = useState(() => startOfWeek(today))
   const splitting = useRef(false)
 
-  const upcoming = workouts.filter((w) => w.scheduled_date >= today)
-  const past = workouts.filter((w) => w.scheduled_date < today)
-  const agenda = showHistory ? workouts : upcoming
+  const weekEnd = endOfWeek(weekStart)
+  const cycleStart = weekStart
+  const cycleEnd = addDays(weekStart, 27)
+
+  const weekSessions = useMemo(
+    () => workouts.filter((w) => w.scheduled_date >= weekStart && w.scheduled_date <= weekEnd),
+    [workouts, weekStart, weekEnd]
+  )
+  const cycleSessions = useMemo(
+    () => workouts.filter((w) => w.scheduled_date >= cycleStart && w.scheduled_date <= cycleEnd),
+    [workouts, cycleStart, cycleEnd]
+  )
 
   useEffect(() => {
     if (splitting.current) return
@@ -155,15 +160,15 @@ export function PlanBoard({ workouts, today }: { workouts: ScheduledWorkout[]; t
     })
   }, [workouts, router, supabase])
 
-  const propose = async () => {
-    setBusy('propose')
+  const propose = async (action: 'propose' | 'propose_cycle') => {
+    setBusy(action === 'propose_cycle' ? 'cycle' : 'propose')
     setError(null)
     setSuccess(null)
     try {
       const response = await fetch('/api/training/plan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'propose' }),
+        body: JSON.stringify({ action, startDate: weekStart }),
       })
       const body = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(body.error ?? 'No se pudo generar la propuesta.')
@@ -219,14 +224,20 @@ export function PlanBoard({ workouts, today }: { workouts: ScheduledWorkout[]; t
     }
   }
 
+  const stats = weekStats(view === 'week' ? weekSessions : cycleSessions)
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
-        <Button onClick={propose} loading={busy === 'propose'} disabled={busy !== null}>
+        <Button onClick={() => propose('propose')} loading={busy === 'propose'} disabled={busy !== null}>
           <CalendarPlus aria-hidden className="h-4 w-4" />
           Proponer semana
         </Button>
-        <span className="text-xs text-slate-500">Nada se guarda hasta que aprobés la propuesta.</span>
+        <Button variant="secondary" onClick={() => propose('propose_cycle')} loading={busy === 'cycle'} disabled={busy !== null}>
+          <Layers aria-hidden className="h-4 w-4" />
+          Proponer ciclo
+        </Button>
+        <span className="text-xs text-slate-500">Nada se guarda hasta que aprobés. Los cambios del plan se piden al entrenador y se confirman.</span>
       </div>
 
       {error && <Alert variant="error">{error}</Alert>}
@@ -261,7 +272,7 @@ export function PlanBoard({ workouts, today }: { workouts: ScheduledWorkout[]; t
           )}
 
           {proposal.draft.workouts.length === 0 ? (
-            <Alert variant="info">No se pudo armar la semana. Revisá tu disponibilidad.</Alert>
+            <Alert variant="info">No se pudo armar la propuesta. Revisá tu disponibilidad.</Alert>
           ) : (
             <div className="space-y-4">
               {groupByDate(proposal.draft.workouts).map(([date, sessions]) => (
@@ -270,16 +281,8 @@ export function PlanBoard({ workouts, today }: { workouts: ScheduledWorkout[]; t
                   {sessions.map((w, i) => (
                     <SessionCard
                       key={`${w.scheduled_date}-${w.workout_type}-${i}`}
-                      title={w.title}
-                      zone={w.target_zone}
-                      minutes={w.duration_minutes}
-                      description={w.description}
-                      purpose={w.purpose}
-                      strength={isStrengthSession(w)}
-                      kind={w.workout_type}
-                      power={w.target_power}
-                      hr={w.target_hr}
-                      extra={w.estimated_load ? `carga ${w.estimated_load}` : null}
+                      session={w}
+                      extra={w.estimated_load ? String(w.estimated_load) : null}
                     />
                   ))}
                 </div>
@@ -311,61 +314,94 @@ export function PlanBoard({ workouts, today }: { workouts: ScheduledWorkout[]; t
         </Card>
       )}
 
-      <Card>
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-sm font-medium uppercase tracking-wide text-slate-400">Agenda</h2>
-          {past.length > 0 && (
-            <Button variant="secondary" onClick={() => setShowHistory((open) => !open)}>
-              <History aria-hidden className="h-4 w-4" />
-              {showHistory ? 'Ocultar anteriores' : `Ver anteriores (${past.length})`}
-            </Button>
-          )}
+      <Card className="space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="inline-flex rounded-lg border border-surface p-1">
+            <button
+              type="button"
+              onClick={() => setView('week')}
+              className={`rounded-md px-3 py-1.5 text-xs font-medium ${
+                view === 'week' ? 'bg-accent-500 text-white' : 'text-muted'
+              }`}
+            >
+              Semana
+            </button>
+            <button
+              type="button"
+              onClick={() => setView('cycle')}
+              className={`rounded-md px-3 py-1.5 text-xs font-medium ${
+                view === 'cycle' ? 'bg-accent-500 text-white' : 'text-muted'
+              }`}
+            >
+              Ciclo (4 sem)
+            </button>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className="rounded p-1 hover:bg-background"
+              aria-label="Anterior"
+              onClick={() => setWeekStart((d) => addDays(d, view === 'cycle' ? -28 : -7))}
+            >
+              <ChevronLeft className="h-5 w-5" />
+            </button>
+            <p className="min-w-[9rem] text-center text-sm font-medium capitalize">
+              {view === 'week' ? formatWeekRange(weekStart, weekEnd) : formatWeekRange(cycleStart, cycleEnd)}
+            </p>
+            <button
+              type="button"
+              className="rounded p-1 hover:bg-background"
+              aria-label="Siguiente"
+              onClick={() => setWeekStart((d) => addDays(d, view === 'cycle' ? 28 : 7))}
+            >
+              <ChevronRight className="h-5 w-5" />
+            </button>
+            {weekStart !== startOfWeek(today) && (
+              <Button variant="secondary" onClick={() => setWeekStart(startOfWeek(today))}>
+                Hoy
+              </Button>
+            )}
+          </div>
         </div>
-        {agenda.length === 0 ? (
-          <p className="mt-3 text-sm text-slate-600">
-            {workouts.length === 0
-              ? 'Todavía no hay sesiones programadas. Generá una propuesta para arrancar.'
-              : 'No hay sesiones desde hoy. Podés ver el historial o proponer la semana.'}
-          </p>
+
+        <p className="text-xs text-muted">
+          {stats.bike} bici · {stats.strength} fuerza · {stats.minutes || 0} min
+        </p>
+
+        {view === 'week' ? (
+          <WeekAgenda
+            start={weekStart}
+            today={today}
+            sessions={weekSessions}
+            onStatus={setStatus}
+          />
         ) : (
-          <div className="mt-4 space-y-5">
-            {groupByDate(agenda).map(([date, sessions]) => (
-              <div key={date} className="space-y-2">
-                <p className="text-xs font-semibold uppercase tracking-wide text-muted">
-                  {weekday(date)}
-                  {date === today ? ' · Hoy' : date < today ? ' · Pasado' : ''}
-                </p>
-                {sessions.map((w) => (
-                  <SessionCard
-                    key={w.id}
-                    title={w.title ?? 'Sesión'}
-                    zone={w.target_zone}
-                    minutes={w.duration_minutes}
-                    description={w.description}
-                    purpose={w.purpose}
-                    rationale={w.rationale}
-                    strength={isStrengthSession(w)}
-                    kind={w.workout_type}
-                    status={w.status}
-                    power={w.target_power}
-                    hr={w.target_hr}
-                    past={date < today}
-                    actions={
-                      w.status === 'scheduled' ? (
-                        <>
-                          <Button variant="secondary" onClick={() => setStatus(w.id, 'completed')}>
-                            Hecho
-                          </Button>
-                          <Button variant="secondary" onClick={() => setStatus(w.id, 'skipped')}>
-                            Saltar
-                          </Button>
-                        </>
-                      ) : undefined
-                    }
+          <div className="space-y-4">
+            {Array.from({ length: 4 }, (_, i) => {
+              const start = addDays(cycleStart, i * 7)
+              const end = addDays(start, 6)
+              const sessions = cycleSessions.filter((w) => w.scheduled_date >= start && w.scheduled_date <= end)
+              const s = weekStats(sessions)
+              return (
+                <div key={start} className="rounded-lg border border-surface p-3 space-y-3">
+                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <h3 className="text-sm font-semibold capitalize">
+                      Semana {i + 1} · {formatWeekRange(start, end)}
+                    </h3>
+                    <p className="text-xs text-muted">
+                      {s.bike + s.strength} sesiones · {s.minutes} min
+                    </p>
+                  </div>
+                  <WeekAgenda
+                    start={start}
+                    today={today}
+                    sessions={sessions}
+                    compact
+                    onStatus={setStatus}
                   />
-                ))}
-              </div>
-            ))}
+                </div>
+              )
+            })}
           </div>
         )}
       </Card>
@@ -373,159 +409,66 @@ export function PlanBoard({ workouts, today }: { workouts: ScheduledWorkout[]; t
   )
 }
 
-function SessionCard({
-  title,
-  zone,
-  minutes,
-  description,
-  purpose,
-  rationale,
-  extra,
-  strength,
-  kind,
-  status,
-  power,
-  hr,
-  past,
-  actions,
+function WeekAgenda({
+  start,
+  today,
+  sessions,
+  compact,
+  onStatus,
 }: {
-  title: string
-  zone: string | null
-  minutes: number | null
-  description: string | null
-  purpose: string | null
-  rationale?: string | null
-  extra?: string | null
-  strength: boolean
-  kind?: string | null
-  status?: WorkoutStatus
-  power?: number | null
-  hr?: number | null
-  past?: boolean
-  actions?: React.ReactNode
+  start: string
+  today: string
+  sessions: ScheduledWorkout[]
+  compact?: boolean
+  onStatus: (id: string, status: WorkoutStatus) => void
 }) {
-  const bikeBlocks = strength ? [] : blocksForBikeSession({ description, minutes, zone, kind })
-  const strengthRows = strength ? strengthExercises(description) : []
-  const stats = [
-    { label: 'Duración', value: minutes != null ? `${minutes} min` : '—' },
-    { label: 'Zona', value: zone ?? '—' },
-    { label: 'Potencia', value: power != null ? `${power} W` : '—' },
-    { label: 'Pulso', value: hr != null ? `${hr} ppm` : '—' },
-  ]
-  if (extra) stats.push({ label: 'Carga', value: extra.replace(/^carga\s+/i, '') })
+  const days = eachDay(start, addDays(start, 6))
+  const byDate = new Map<string, ScheduledWorkout[]>()
+  for (const w of sessions) {
+    const list = byDate.get(w.scheduled_date) ?? []
+    list.push(w)
+    byDate.set(w.scheduled_date, list)
+  }
 
   return (
-    <div
-      className={`rounded-lg border p-3 space-y-3 ${
-        past ? 'opacity-70' : ''
-      } ${strength ? 'border-amber-400/40 bg-amber-50/5' : 'border-surface'}`}
-    >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <span
-              className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
-                strength ? 'bg-amber-100 text-amber-800' : 'bg-orange-100 text-orange-800'
-              }`}
-            >
-              {strength ? 'Fuerza' : 'Bici'}
-            </span>
-            <p className="text-sm font-medium text-foreground">{title}</p>
+    <div className="space-y-4">
+      {days.map((date) => {
+        const daySessions = byDate.get(date) ?? []
+        return (
+          <div key={date} className="space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted">
+              {weekday(date)}
+              {date === today ? ' · Hoy' : date < today ? ' · Pasado' : ''}
+            </p>
+            {daySessions.length === 0 ? (
+              <p className="rounded-lg border border-dashed border-surface px-3 py-2 text-xs text-muted">
+                Libre / descanso
+              </p>
+            ) : (
+              daySessions.map((w) => (
+                <SessionCard
+                  key={w.id}
+                  session={w}
+                  past={date < today}
+                  defaultOpen={!compact && date === today}
+                  actions={
+                    w.status === 'scheduled' && date >= today ? (
+                      <>
+                        <Button variant="secondary" onClick={() => onStatus(w.id, 'completed')}>
+                          Hecho
+                        </Button>
+                        <Button variant="secondary" onClick={() => onStatus(w.id, 'skipped')}>
+                          Saltar
+                        </Button>
+                      </>
+                    ) : undefined
+                  }
+                />
+              ))
+            )}
           </div>
-        </div>
-        {status && (
-          <span className={`shrink-0 rounded-full px-2 py-1 text-xs font-medium ${statusClass(status)}`}>
-            {STATUS_LABEL[status]}
-          </span>
-        )}
-      </div>
-
-      <div className="overflow-x-auto">
-        <table className="w-full text-left text-[11px]">
-          <thead>
-            <tr className="text-muted">
-              {stats.map((s) => (
-                <th key={s.label} className="pb-1 pr-3 font-medium">
-                  {s.label}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            <tr className="text-foreground">
-              {stats.map((s) => (
-                <td key={s.label} className="pr-3 tabular-nums">
-                  {s.value}
-                </td>
-              ))}
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      {bikeBlocks.length > 0 && (
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-[11px]">
-            <thead>
-              <tr className="border-b border-surface text-muted">
-                <th className="py-1 pr-2 font-medium">Bloque</th>
-                <th className="py-1 pr-2 font-medium">Tiempo</th>
-                <th className="py-1 font-medium">Intensidad</th>
-              </tr>
-            </thead>
-            <tbody>
-              {bikeBlocks.map((b, i) => (
-                <tr key={`${b.label}-${i}`} className="border-b border-surface/60">
-                  <td className="py-1 pr-2">{b.label}</td>
-                  <td className="py-1 pr-2 tabular-nums">
-                    {b.repeats != null && b.minutes != null
-                      ? `${b.repeats} × ${b.minutes} min`
-                      : b.minutes != null
-                        ? `${b.minutes} min`
-                        : '—'}
-                  </td>
-                  <td className="py-1">{b.intensity ?? '—'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {strengthRows.length > 0 && (
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-[11px]">
-            <thead>
-              <tr className="border-b border-surface text-muted">
-                <th className="py-1 pr-2 font-medium">Ejercicio</th>
-                <th className="py-1 pr-2 font-medium">Series</th>
-                <th className="py-1 pr-2 font-medium">Reps</th>
-                <th className="py-1 font-medium">Notas</th>
-              </tr>
-            </thead>
-            <tbody>
-              {strengthRows.map((row) => (
-                <tr key={row.exercise} className="border-b border-surface/60">
-                  <td className="py-1 pr-2">{row.exercise}</td>
-                  <td className="py-1 pr-2 tabular-nums">{row.sets}</td>
-                  <td className="py-1 pr-2 tabular-nums">{row.reps}</td>
-                  <td className="py-1 text-muted">{row.note}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {description && bikeBlocks.length === 0 && strengthRows.length === 0 && (
-        <p className="text-xs text-slate-500 whitespace-pre-wrap">{description}</p>
-      )}
-      {description && (bikeBlocks.length > 0 || strengthRows.length > 0) && (
-        <p className="text-xs text-muted">{description}</p>
-      )}
-      {purpose && <p className="text-xs italic text-slate-400">{purpose}</p>}
-      {rationale && <p className="text-xs text-slate-500">{rationale}</p>}
-      {actions && <div className="flex justify-end gap-2 pt-1">{actions}</div>}
+        )
+      })}
     </div>
   )
 }

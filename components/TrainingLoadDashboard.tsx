@@ -250,9 +250,9 @@ function RollingLoadChart({
         <Line
           type="monotone"
           dataKey="rolling7d"
-          stroke="#e2e8f0"
+          stroke="#94a3b8"
           strokeWidth={compact ? 1.5 : 2}
-          dot={compact ? false : { r: 3, fill: '#e2e8f0', stroke: '#94a3b8' }}
+          dot={compact ? false : { r: 3, fill: '#94a3b8', stroke: '#64748b' }}
           isAnimationActive={false}
         />
       </ComposedChart>

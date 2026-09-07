@@ -6,6 +6,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Alert, Button, Card, Input } from '@/components/ui'
 import { useRouter } from 'next/navigation'
+import { normalizeCoachPlan, splitPlanBlock, type CoachPlan } from '@/lib/training/coach-plan'
 
 export type CoachMessage = {
   id: string
@@ -49,60 +50,6 @@ const SUGGESTIONS = [
   'Armame un plan para los próximos 7 días',
 ]
 
-type CoachPlan = {
-  emphasis?: 'recovery' | 'maintenance' | 'build'
-  workouts: Array<{
-    date: string
-    type: string
-    duration_minutes: number
-    title?: string
-    target_zone?: string
-  }>
-}
-
-/**
- * The coach appends a hidden ```plan``` block with the structured version of
- * whatever plan it just showed. Split it out so the athlete only sees the prose
- * and we can offer to save the exact same sessions.
- */
-function tryParsePlan(raw: string): CoachPlan | null {
-  try {
-    const plan = JSON.parse(raw.trim()) as CoachPlan
-    if (plan && Array.isArray(plan.workouts) && plan.workouts.length > 0) return plan
-  } catch {
-    // ignore
-  }
-  return null
-}
-
-function splitPlanBlock(message: string): { text: string; plan: CoachPlan | null } {
-  let text = message
-  let plan: CoachPlan | null = null
-
-  const fences = Array.from(text.matchAll(/```(?:plan|json)?\s*\n?([\s\S]*?)```/gi))
-  for (const match of fences) {
-    const parsed = tryParsePlan(match[1])
-    if (parsed) plan = parsed
-    if (parsed || /"workouts"\s*:/.test(match[1]) || /"emphasis"\s*:/.test(match[1])) {
-      text = text.replace(match[0], '')
-    }
-  }
-
-  const trailing = text.match(/(\{[\s\S]*"workouts"\s*:\s*\[[\s\S]*)$/)
-  if (trailing && trailing.index != null) {
-    const parsed = tryParsePlan(trailing[1])
-    if (parsed) plan = parsed
-    text = text.slice(0, trailing.index)
-  }
-
-  text = text
-    .replace(/```(?:plan|json)?[\s\S]*$/i, '')
-    .replace(/\n?\{[\s\S]*"emphasis"[\s\S]*$/, '')
-    .trim()
-
-  return { text, plan }
-}
-
 export function CoachChat({ initialMessages }: { initialMessages: CoachMessage[] }) {
   const [messages, setMessages] = useState(initialMessages)
   const [input, setInput] = useState('')
@@ -110,9 +57,7 @@ export function CoachChat({ initialMessages }: { initialMessages: CoachMessage[]
   const [error, setError] = useState<string | null>(null)
   const endRef = useRef<HTMLDivElement>(null)
   const [proposing, setProposing] = useState(false)
-  const [draft, setDraft] = useState<any | null>(null)
-  const [rationale, setRationale] = useState<string | null>(null)
-  const [commitLoading, setCommitLoading] = useState(false)
+  const [savedPlanKey, setSavedPlanKey] = useState<string | null>(null)
   const router = useRouter()
 
   useEffect(() => {
@@ -155,6 +100,10 @@ export function CoachChat({ initialMessages }: { initialMessages: CoachMessage[]
           created_at: new Date().toISOString(),
         },
       ])
+      if (typeof body.reply === 'string' && /Cambio confirmado/.test(body.reply)) {
+        router.push('/plan')
+        router.refresh()
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error inesperado.')
       setMessages((prev) => prev.filter((m) => m.id !== optimistic.id))
@@ -164,56 +113,64 @@ export function CoachChat({ initialMessages }: { initialMessages: CoachMessage[]
     }
   }
 
-  async function proposePlan(plan: CoachPlan) {
+  async function savePlan(plan: CoachPlan) {
+    const normalized = normalizeCoachPlan(plan)
+    if (!normalized) {
+      setError('El entrenador no mandó fechas válidas. Pedile de nuevo el plan de hoy.')
+      return
+    }
+
     setProposing(true)
     setError(null)
     try {
-      const res = await fetch('/api/training/plan', {
+      const previewRes = await fetch('/api/training/plan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'coach_preview', plan }),
+        body: JSON.stringify({ action: 'coach_preview', plan: normalized }),
       })
-      const body = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(body.error ?? 'No se pudo generar la propuesta.')
-      setDraft(body.draft)
-      setRationale(body.rationale ?? null)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error inesperado al generar propuesta.')
-    } finally {
-      setProposing(false)
-    }
-  }
+      const preview = await previewRes.json().catch(() => ({}))
+      if (!previewRes.ok) throw new Error(preview.error ?? 'No se pudo armar el plan.')
+      if (!preview.draft?.workouts?.length) {
+        throw new Error('El plan no tiene sesiones para guardar. Pedile al entrenador que lo repita.')
+      }
 
-  async function commitPlan() {
-    if (!draft) return
-    setCommitLoading(true)
-    setError(null)
-    try {
-      const res = await fetch('/api/training/plan', {
+      const commitRes = await fetch('/api/training/plan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'commit', draft, rationale }),
+        body: JSON.stringify({
+          action: 'commit',
+          draft: preview.draft,
+          rationale: preview.rationale ?? null,
+        }),
       })
-      const body = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(body.error ?? 'No se pudo guardar el plan.')
+      const committed = await commitRes.json().catch(() => ({}))
+      if (!commitRes.ok) throw new Error(committed.error ?? 'No se pudo guardar el plan.')
+      if (!committed.created) {
+        throw new Error('No se guardó ninguna sesión. Pedile al entrenador que lo vuelva a mandar.')
+      }
+
+      setSavedPlanKey(planKey(normalized))
       setMessages((prev) => [
         ...prev,
         {
           id: `local-plan-${Date.now()}`,
           direction: 'outbound',
           channel: 'web',
-          message: `Plan guardado: ${body.created ?? 0} sesiones programadas.`,
+          message: `Listo: ${committed.created} sesión${committed.created === 1 ? '' : 'es'} agendada${committed.created === 1 ? '' : 's'} en tu plan.`,
           created_at: new Date().toISOString(),
         },
       ])
-      setDraft(null)
-      setRationale(null)
+      router.push('/plan')
       router.refresh()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error inesperado al guardar plan.')
+      setError(err instanceof Error ? err.message : 'Error inesperado al guardar el plan.')
     } finally {
-      setCommitLoading(false)
+      setProposing(false)
     }
+  }
+
+  function planKey(plan: CoachPlan): string {
+    return plan.workouts.map((w) => `${w.date}:${w.type}:${w.duration_minutes}`).join('|')
   }
 
   return (
@@ -263,51 +220,23 @@ export function CoachChat({ initialMessages }: { initialMessages: CoachMessage[]
                 <span className="mt-1 block text-[10px] opacity-60">vía Telegram</span>
               )}
               </div>
-              {/* Only coach messages that carry a structured plan can be saved */}
               {!isUser && plan && (
-                <button
-                  type="button"
-                  onClick={() => proposePlan(plan)}
-                  disabled={proposing}
-                  className="mt-1 text-xs text-muted underline"
-                >
-                  {proposing ? 'Generando propuesta…' : 'Convertir a plan'}
-                </button>
+                savedPlanKey === planKey(plan) ? (
+                  <p className="mt-1 text-xs text-accent-600 dark:text-accent-400">Agendado en tu plan</p>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => savePlan(plan)}
+                    disabled={proposing}
+                    className="mt-1 text-xs font-medium text-accent-600 underline dark:text-accent-400"
+                  >
+                    {proposing ? 'Agendando…' : 'Confirmar y agendar'}
+                  </button>
+                )
               )}
             </div>
           )
         })}
-
-        {/* Draft preview / commit panel */}
-        {draft && (
-          <div className="rounded-lg border border-surface bg-surface p-3 text-sm space-y-2">
-            <h3 className="font-semibold">Propuesta de plan</h3>
-            {rationale && <p className="text-xs text-muted">{rationale}</p>}
-            <div className="mt-2 space-y-1">
-              {draft.workouts?.length ? (
-                draft.workouts.map((w: any, i: number) => (
-                  <div key={`${w.scheduled_date}-${w.workout_type}-${i}`} className="flex justify-between">
-                    <div>
-                      <div className="font-medium">{w.scheduled_date}</div>
-                      <div className="text-xs text-muted">{w.title} — {w.duration_minutes} min</div>
-                    </div>
-                    <div className="text-sm text-muted">{w.target_zone}</div>
-                  </div>
-                ))
-              ) : (
-                <div className="text-xs text-muted">No hay sesiones en la propuesta.</div>
-              )}
-            </div>
-            <div className="flex gap-2 mt-2">
-              <Button onClick={commitPlan} loading={commitLoading} disabled={commitLoading}>
-                Guardar plan
-              </Button>
-              <Button variant="secondary" onClick={() => { setDraft(null); setRationale(null) }}>
-                Cancelar
-              </Button>
-            </div>
-          </div>
-        )}
 
         {sending && <p className="text-xs text-slate-400">El entrenador está pensando…</p>}
         <div ref={endRef} />

@@ -21,6 +21,8 @@ const DEFAULT_STRENGTH: StrengthExercise[] = [
   { exercise: 'Vuelta: movilidad suave', sets: '1', reps: '5 min', note: 'Cierre, sin fatiga' },
 ]
 
+import { parseCompactIntervals } from './session-prescription'
+
 const HARD_KIND = /tempo|threshold|vo2|umbral/i
 
 /** Warmup and cooldown that fit inside the total session time (not extra). */
@@ -86,9 +88,12 @@ export function blocksForBikeSession(input: {
   minutes: number | null
   zone: string | null
   kind: string | null | undefined
+  title?: string | null
 }): WorkoutBlock[] {
-  const text = (input.description ?? '').replace(/\s+/g, ' ').trim()
+  const title = (input.title ?? '').replace(/\s+/g, ' ').trim()
+  const text = [title, input.description ?? ''].filter(Boolean).join('. ').replace(/\s+/g, ' ').trim()
   const blocks: WorkoutBlock[] = []
+  const compact = parseCompactIntervals(title) ?? parseCompactIntervals(input.description)
 
   const warmup = text.match(
     /(\d+)\s*min(?:utos)?\s+de\s+entrada(?:\s+en\s+calor)?(?:\s+progresiva)?(?:\s+en\s+(Z[1-5](?:\s*[–-]\s*Z[1-5])?))?/i
@@ -103,7 +108,7 @@ export function blocksForBikeSession(input: {
   }
 
   const intervals = text.match(
-    /(\d+)\s*(?:bloques|series)\s+de\s+(\d+)\s*min(?:utos)?(?:\s+(?:en\s+|al\s+)?(Z[1-5]|FTP|umbral|fuerte|tempo))?/i
+    /(\d+)\s*(?:bloques|series)\s+de\s+(\d+)\s*min(?:utos)?(?:\s+(?:en\s+|al\s+)?(Z[1-5]|FTP|umbral|fuerte|tempo|sweet\s*spot))?/i
   )
   if (intervals) {
     blocks.push({
@@ -112,16 +117,30 @@ export function blocksForBikeSession(input: {
       repeats: Number(intervals[1]),
       intensity: normalizeIntensity(intervals[3]),
     })
+  } else if (compact) {
+    blocks.push({
+      label: 'Intervalos',
+      minutes: compact.minutes,
+      repeats: compact.repeats,
+      intensity: compact.intensity,
+    })
   }
 
   const recovery = text.match(
     /(\d+)\s*min(?:utos)?\s+suaves(?:\s+entre(?:\s+(?:medio|cada\s+uno))?)?/i
   )
-  if (recovery && intervals) {
+  if (intervals && recovery) {
     blocks.push({
       label: 'Recuperación entre series',
       minutes: Number(recovery[1]),
       repeats: Number(intervals[1]) > 1 ? Number(intervals[1]) - 1 : null,
+      intensity: 'Z1–Z2',
+    })
+  } else if (compact) {
+    blocks.push({
+      label: 'Recuperación entre series',
+      minutes: compact.restMinutes,
+      repeats: compact.repeats > 1 ? compact.repeats - 1 : null,
       intensity: 'Z1–Z2',
     })
   }
@@ -130,7 +149,7 @@ export function blocksForBikeSession(input: {
     /(?:ritmo constante en |después,?\s+(\d+)\s*min(?:utos)?\s+en\s+)(Z[1-5])/i
   )
   const afterMinutes = text.match(/después,?\s+(\d+)\s*min(?:utos)?\s+en\s+(Z[1-5])/i)
-  if (!intervals) {
+  if (!intervals && !compact) {
     const mainMinutes = afterMinutes ? Number(afterMinutes[1]) : null
     const mainZone = afterMinutes?.[2] ?? steady?.[2] ?? input.zone
     if (mainZone || mainMinutes != null) {
@@ -190,7 +209,7 @@ export function blocksForBikeSession(input: {
 function normalizeIntensity(value: string | undefined): string | null {
   if (!value) return null
   const v = value.toLowerCase()
-  if (v === 'ftp' || v === 'umbral') return 'FTP / Z4'
+  if (v === 'ftp' || v === 'umbral' || v.includes('sweet')) return 'FTP / Z4'
   if (v === 'fuerte') return 'Z5'
   if (v === 'tempo') return 'Z3'
   return value.toUpperCase()

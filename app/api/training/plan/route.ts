@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
-import { coachPlanToDraft, commitWeeklyPlan, proposeWeeklyPlan } from '@/lib/training/plan-service'
+import { normalizeCoachPlan } from '@/lib/training/coach-plan'
+import { coachPlanToDraft, commitWeeklyPlan, proposeCyclePlan, proposeWeeklyPlan } from '@/lib/training/plan-service'
 import { createClient } from '@/lib/supabase/server'
 
 export const dynamic = 'force-dynamic'
@@ -28,8 +29,8 @@ const draftSchema = z.object({
   blockPosition: z.number().int().min(1).max(8),
   weeklyTargetLoad: z.number().min(0),
   plannedLoad: z.number().min(0),
-  workouts: z.array(workoutSchema).max(14),
-  notes: z.array(z.string().max(500)).max(20),
+  workouts: z.array(workoutSchema).max(32),
+  notes: z.array(z.string().max(500)).max(40),
 })
 
 const coachPlanSchema = z.object({
@@ -38,18 +39,20 @@ const coachPlanSchema = z.object({
     .array(
       z.object({
         date: isoDate,
-        type: z.string().max(20),
-        duration_minutes: z.number(),
+        type: z.enum(['recovery', 'endurance', 'long', 'tempo', 'threshold', 'vo2max', 'strength']),
+        duration_minutes: z.number().int().min(15).max(600),
         title: z.string().max(200).optional(),
         description: z.string().max(1000).optional(),
         target_zone: z.string().max(20).optional(),
       })
     )
-    .max(14),
+    .min(1)
+    .max(32),
 })
 
 const bodySchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('propose'), startDate: isoDate.optional() }),
+  z.object({ action: z.literal('propose_cycle'), startDate: isoDate.optional() }),
   z.object({ action: z.literal('coach_preview'), plan: coachPlanSchema }),
   z.object({
     action: z.literal('commit'),
@@ -68,17 +71,34 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
   }
 
-  const parsed = bodySchema.safeParse(await request.json().catch(() => null))
+  const rawBody = await request.json().catch(() => null)
+  const coerced =
+    rawBody && typeof rawBody === 'object' && (rawBody as { action?: string }).action === 'coach_preview'
+      ? { ...rawBody, plan: normalizeCoachPlan((rawBody as { plan?: unknown }).plan) }
+      : rawBody
+  const parsed = bodySchema.safeParse(coerced)
   if (!parsed.success) {
-    return NextResponse.json({ error: 'Petición inválida.' }, { status: 400 })
+    const first = parsed.error.issues[0]
+    return NextResponse.json(
+      {
+        error: first
+          ? `No se pudo agendar el plan (${first.path.join('.') || 'datos'}: ${first.message}).`
+          : 'Petición inválida.',
+      },
+      { status: 400 }
+    )
   }
 
   try {
-    if (parsed.data.action === 'propose') {
+    if (parsed.data.action === 'propose' || parsed.data.action === 'propose_cycle') {
       if (!user.id) {
         return NextResponse.json({ error: 'No se pudo identificar el usuario.' }, { status: 400 })
       }
-      return NextResponse.json(await proposeWeeklyPlan(user.id, parsed.data.startDate))
+      return NextResponse.json(
+        parsed.data.action === 'propose_cycle'
+          ? await proposeCyclePlan(user.id, parsed.data.startDate)
+          : await proposeWeeklyPlan(user.id, parsed.data.startDate)
+      )
     }
 
     if (parsed.data.action === 'coach_preview') {

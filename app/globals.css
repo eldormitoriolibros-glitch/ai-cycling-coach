@@ -2,11 +2,103 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ---- Accent palettes. Selected with data-accent on <html>. ---- */
+:root,
+[data-accent='slate'] {
+  --accent-100: 226 232 240;
+  --accent-300: 148 163 184;
+  --accent-400: 148 163 184;
+  --accent-500: 100 116 139;
+  --accent-600: 71 85 105;
+  --accent-700: 51 65 85;
+  --accent-800: 30 41 59;
+  --accent-950: 2 6 23;
+}
+
+[data-accent='cyan'] {
+  --accent-100: 207 250 254;
+  --accent-300: 103 232 249;
+  --accent-400: 34 211 238;
+  --accent-500: 6 182 212;
+  --accent-600: 8 145 178;
+  --accent-700: 14 116 144;
+  --accent-800: 21 94 117;
+  --accent-950: 8 51 68;
+}
+
+[data-accent='indigo'] {
+  --accent-100: 224 231 255;
+  --accent-300: 165 180 252;
+  --accent-400: 129 140 248;
+  --accent-500: 99 102 241;
+  --accent-600: 79 70 229;
+  --accent-700: 67 56 202;
+  --accent-800: 55 48 163;
+  --accent-950: 30 27 75;
+}
+
+[data-accent='violet'] {
+  --accent-100: 237 233 254;
+  --accent-300: 196 181 253;
+  --accent-400: 167 139 250;
+  --accent-500: 139 92 246;
+  --accent-600: 124 58 237;
+  --accent-700: 109 40 217;
+  --accent-800: 91 33 182;
+  --accent-950: 46 16 101;
+}
+
+[data-accent='emerald'] {
+  --accent-100: 209 250 229;
+  --accent-300: 110 231 183;
+  --accent-400: 52 211 153;
+  --accent-500: 16 185 129;
+  --accent-600: 5 150 105;
+  --accent-700: 4 120 87;
+  --accent-800: 6 95 70;
+  --accent-950: 2 44 34;
+}
+
+[data-accent='rose'] {
+  --accent-100: 255 228 230;
+  --accent-300: 253 164 175;
+  --accent-400: 251 113 133;
+  --accent-500: 244 63 94;
+  --accent-600: 225 29 72;
+  --accent-700: 190 18 60;
+  --accent-800: 159 18 57;
+  --accent-950: 76 5 25;
+}
+
+[data-accent='orange'] {
+  --accent-100: 255 237 213;
+  --accent-300: 253 186 116;
+  --accent-400: 251 146 60;
+  --accent-500: 249 115 22;
+  --accent-600: 234 88 12;
+  --accent-700: 194 65 12;
+  --accent-800: 154 52 18;
+  --accent-950: 67 20 7;
+}
+
+/* ---- Light theme (default) ---- */
 :root {
   --foreground-rgb: 15, 23, 42;
-  --background-rgb: 248, 250, 252;
-  --surface-rgb: 250, 250, 251;
+  --background-rgb: 246, 247, 249;
+  --surface-rgb: 255, 255, 255;
   --border-rgb: 226, 232, 240;
+  --muted-rgb: 100, 116, 139;
+  --primary-rgb: var(--accent-600);
+}
+
+/* ---- Dark theme, applied with the .dark class on <html> ---- */
+.dark {
+  --foreground-rgb: 232, 234, 237;
+  --background-rgb: 15, 15, 18;
+  --surface-rgb: 25, 25, 29;
+  --border-rgb: 45, 45, 52;
+  --muted-rgb: 148, 150, 158;
+  --primary-rgb: var(--accent-600);
 }
 
 body {
@@ -14,29 +106,31 @@ body {
   background: rgb(var(--background-rgb));
 }
 
-/* Dark theme variables inspired by Google's Material dark palette */
-@media (prefers-color-scheme: dark) {
-  :root {
-    --foreground-rgb: 232, 234, 237;
-    --background-rgb: 18, 18, 20;
-    --surface-rgb: 30, 30, 33;
-    --muted-rgb: 147, 149, 151;
-    --primary-rgb: 26, 115, 232; /* blue accent */
-  }
+/* Accent glow so the background doesn't read as a flat slab. */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0 0 auto 0;
+  height: 28rem;
+  pointer-events: none;
+  z-index: -1;
+  background:
+    radial-gradient(60rem 28rem at 8% -12%, rgb(var(--accent-500) / 0.14), transparent 62%),
+    radial-gradient(45rem 24rem at 98% -8%, rgb(var(--accent-400) / 0.08), transparent 58%);
 }
 
-/* Force dark theme by default (user prefers dark) — can be toggled by adding/removing .light on <body> */
-.dark {
-  --foreground-rgb: 232, 234, 237;
-  --background-rgb: 18, 18, 20;
-  --surface-rgb: 30, 30, 33;
-  --muted-rgb: 147, 149, 151;
-  --primary-rgb: 26, 115, 232;
+.dark body::before {
+  background:
+    radial-gradient(60rem 30rem at 8% -10%, rgb(var(--accent-500) / 0.16), transparent 62%),
+    radial-gradient(45rem 26rem at 98% -4%, rgb(var(--accent-300) / 0.07), transparent 58%);
 }
 
 /* Utility classes referencing the variables for consistent styling */
 .bg-surface {
   background-color: rgb(var(--surface-rgb));
+}
+.bg-background {
+  background-color: rgb(var(--background-rgb));
 }
 .text-muted {
   color: rgb(var(--muted-rgb));
@@ -52,4 +146,13 @@ body {
 }
 .bg-primary {
   background-color: rgb(var(--primary-rgb));
+}
+
+/* Horizontal nav strips scroll on small screens without showing a bar. */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
 }
