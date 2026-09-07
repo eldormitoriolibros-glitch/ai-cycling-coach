@@ -106,7 +106,7 @@ export function SessionCard({
       }`}
     >
       <div className="flex items-start justify-between gap-3">
-        <button type="button" className="min-w-0 text-left" onClick={() => setOpen((v) => !v)}>
+        <button type="button" className="min-w-0 flex-1 text-left" onClick={() => setOpen((v) => !v)}>
           <div className="flex flex-wrap items-center gap-2">
             <span
               className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
@@ -120,16 +120,29 @@ export function SessionCard({
             <p className="text-sm font-medium text-foreground">{session.title ?? 'Sesión'}</p>
           </div>
           <p className="mt-1 text-xs text-muted">
-            {session.duration_minutes != null ? `${session.duration_minutes} min` : '—'}
-            {zone ? ` · ${zone}` : ''}
-            {session.target_power != null ? ` · ${session.target_power} W` : ''}
-            {extra ? ` · carga ${extra.replace(/^carga\s+/i, '')}` : ''}
+            {zone ? zone : null}
+            {zone && session.target_power != null ? ' · ' : null}
+            {session.target_power != null ? `${session.target_power} W` : null}
+            {(zone || session.target_power != null) && extra ? ' · ' : null}
+            {extra ? `carga ${extra.replace(/^carga\s+/i, '')}` : null}
+            {!zone && session.target_power == null && !extra ? kindLabel(kind) : null}
             <span className="ml-2 text-accent-600 dark:text-accent-400">
               {open ? 'Ocultar detalle' : 'Ver diseño'}
             </span>
           </p>
         </button>
         <div className="flex shrink-0 items-center gap-2">
+          <div
+            className="min-w-[3.25rem] rounded-lg bg-accent-500/10 px-2.5 py-1.5 text-center ring-1 ring-inset ring-accent-500/20"
+            title="Duración total"
+          >
+            <p className="text-lg font-bold leading-none tabular-nums text-foreground">
+              {session.duration_minutes != null ? session.duration_minutes : '—'}
+            </p>
+            <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-wide text-accent-600 dark:text-accent-400">
+              min
+            </p>
+          </div>
           {session.status && (
             <span className={`rounded-full px-2 py-1 text-xs font-medium ${statusClass(session.status)}`}>
               {STATUS_LABEL[session.status]}
@@ -140,7 +153,13 @@ export function SessionCard({
 
       {open && (
         <div className="space-y-3 border-t border-surface pt-3">
-          <dl className="grid grid-cols-2 gap-2 text-[11px] sm:grid-cols-4">
+          <dl className="grid grid-cols-2 gap-2 text-[11px] sm:grid-cols-5">
+            <div>
+              <dt className="text-muted">Duración</dt>
+              <dd className="text-sm font-semibold tabular-nums">
+                {session.duration_minutes != null ? `${session.duration_minutes} min` : '—'}
+              </dd>
+            </div>
             <div>
               <dt className="text-muted">Tipo</dt>
               <dd>{kindLabel(kind)}</dd>
@@ -182,7 +201,7 @@ export function SessionCard({
                     {bikeBlocks.map((b, i) => (
                       <tr key={`${b.label}-${i}`} className="border-b border-surface/60">
                         <td className="py-1 pr-2">{b.label}</td>
-                        <td className="py-1 pr-2 tabular-nums">
+                        <td className="py-1 pr-2 font-semibold tabular-nums text-foreground">
                           {b.repeats != null && b.minutes != null
                             ? `${b.repeats} × ${b.minutes} min`
                             : b.minutes != null

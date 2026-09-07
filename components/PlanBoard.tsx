@@ -365,7 +365,8 @@ export function PlanBoard({ workouts, today }: { workouts: ScheduledWorkout[]; t
         </div>
 
         <p className="text-xs text-muted">
-          {stats.bike} bici · {stats.strength} fuerza · {stats.minutes || 0} min
+          {stats.bike} bici · {stats.strength} fuerza ·{' '}
+          <span className="font-semibold tabular-nums text-foreground">{stats.minutes || 0} min</span>
         </p>
 
         {view === 'week' ? (
@@ -389,7 +390,8 @@ export function PlanBoard({ workouts, today }: { workouts: ScheduledWorkout[]; t
                       Semana {i + 1} · {formatWeekRange(start, end)}
                     </h3>
                     <p className="text-xs text-muted">
-                      {s.bike + s.strength} sesiones · {s.minutes} min
+                      {s.bike + s.strength} sesiones ·{' '}
+                      <span className="font-semibold tabular-nums text-foreground">{s.minutes} min</span>
                     </p>
                   </div>
                   <WeekAgenda
@@ -436,10 +438,17 @@ function WeekAgenda({
         const daySessions = byDate.get(date) ?? []
         return (
           <div key={date} className="space-y-2">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted">
-              {weekday(date)}
-              {date === today ? ' · Hoy' : date < today ? ' · Pasado' : ''}
-            </p>
+            <div className="flex items-baseline justify-between gap-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted">
+                {weekday(date)}
+                {date === today ? ' · Hoy' : date < today ? ' · Pasado' : ''}
+              </p>
+              {daySessions.length > 0 && (
+                <p className="text-xs font-semibold tabular-nums text-foreground">
+                  {daySessions.reduce((sum, w) => sum + (w.duration_minutes ?? 0), 0)} min
+                </p>
+              )}
+            </div>
             {daySessions.length === 0 ? (
               <p className="rounded-lg border border-dashed border-surface px-3 py-2 text-xs text-muted">
                 Libre / descanso
