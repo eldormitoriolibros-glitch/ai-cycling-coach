@@ -1,10 +1,12 @@
 import { createAdminClient } from '@/lib/supabase/admin'
+import { formatLapsForCoach, type ActivityLapRow } from '@/lib/activities/laps'
 import { formatDistance, formatDuration } from '@/lib/utils'
 import { addDays, localDateKey } from '@/lib/training/dates'
 import { buildRecentActivityInsights } from './activity-insights'
 import { loadPowerSummary } from '@/lib/training/ftp'
 import { buildAthleteProfile, formatAthleteProfile } from '@/lib/training/athlete-profile'
-import { computeReadiness, formatAthleteState } from '@/lib/training/readiness'
+import { formatAthleteState } from '@/lib/training/readiness'
+import { readinessFrom } from '@/lib/training/readiness-input'
 import { loadPreviousSnapshot } from '@/lib/training/snapshot'
 import { formatLoadSeries, formatPowerContext, formatExecution, formatCycleHistory } from './execution'
 
@@ -35,7 +37,7 @@ export async function buildAthleteContext(userId: string): Promise<string> {
       supabase
         .from('activities')
         .select(
-          'start_time, title, sport_type, distance_meters, moving_seconds, avg_power, normalized_power, intensity_factor, avg_hr, max_hr, avg_cadence, elevation_gain_meters, is_trainer, training_load'
+          'id, start_time, title, sport_type, distance_meters, moving_seconds, avg_power, normalized_power, intensity_factor, avg_hr, max_hr, avg_cadence, elevation_gain_meters, is_trainer, training_load'
         )
         .eq('user_id', userId)
         .order('start_time', { ascending: false })
@@ -123,7 +125,7 @@ export async function buildAthleteContext(userId: string): Promise<string> {
   }
 
   lines.push('')
-  lines.push('## Disponibilidad semanal')
+  lines.push('## Disponibilidad semanal (tiempo máximo por día, no objetivo a cubrir)')
   const availableDays = (availability.data ?? [])
     .filter((a) => a.bike_minutes > 0 || a.strength_minutes > 0)
     .sort((x, y) => x.day_of_week - y.day_of_week)
@@ -179,6 +181,8 @@ export async function buildAthleteContext(userId: string): Promise<string> {
     lines.push('- ninguna sincronizada todavía')
   }
 
+  lines.push(...(await formatRecentLaps(userId, (activities.data ?? []).slice(0, 5), tz)))
+
   if (workouts.data?.length) {
     lines.push('')
     lines.push('## Entrenamientos prescriptos (últimos 10 días y próximos 7)')
@@ -224,25 +228,11 @@ export async function buildAthleteContext(userId: string): Promise<string> {
   // Estado del atleta (hoy) -- unified section replacing old "Recuperación" + "Readiness"
   const latestRecovery = (recovery.data ?? [])[0] ?? null
   const latestSleep = (sleep.data ?? [])[0] ?? null
-  const recData = recovery.data ?? []
-  const validRhr = recData.filter((r) => r.resting_hr != null)
-  const baselineResting = validRhr.length > 0 ? validRhr.reduce((s, r) => s + (r.resting_hr ?? 0), 0) / validRhr.length : null
-  const validHrv = recData.filter((r) => r.hrv != null)
-  const baselineHrv = validHrv.length > 0 ? validHrv.reduce((s, r) => s + (r.hrv ?? 0), 0) / validHrv.length : null
 
-  const readiness = computeReadiness({
+  const readiness = readinessFrom({
     form: load?.[0]?.form ?? null,
-    restingHr: latestRecovery?.resting_hr ?? null,
-    baselineRestingHr: baselineResting,
-    hrv: latestRecovery?.hrv ?? null,
-    baselineHrv: baselineHrv,
-    sleepHours: latestSleep?.duration_minutes ? latestSleep.duration_minutes / 60 : null,
-    sleepScore: latestSleep?.sleep_score ?? null,
-    soreness: latestRecovery?.soreness ?? null,
-    motivation: latestRecovery?.motivation ?? null,
-    bodyBattery: (latestRecovery as any)?.body_battery_high ?? null,
-    stressAvg: latestRecovery?.stress ?? null,
-    spo2: (latestRecovery as any)?.spo2_avg ?? null,
+    recovery: recovery.data ?? [],
+    sleep: sleep.data ?? [],
   })
 
   lines.push('')
@@ -269,4 +259,52 @@ export async function buildAthleteContext(userId: string): Promise<string> {
 
 function fmt(value: number | null | undefined): string {
   return value === null || value === undefined ? 'n/d' : Math.round(value).toString()
+}
+
+/**
+ * Lap splits for the latest rides. The coach cannot see charts, so this is the
+ * only way it can judge a structured session block by block instead of by the
+ * whole-ride average.
+ */
+async function formatRecentLaps(
+  userId: string,
+  activities: Array<{ id: string; start_time: string; title: string | null; sport_type: string | null }>,
+  timeZone: string
+): Promise<string[]> {
+  if (activities.length === 0) return []
+
+  const supabase = createAdminClient()
+  const { data } = await supabase
+    .from('activity_laps')
+    .select(
+      'activity_id, lap_index, start_offset_seconds, elapsed_seconds, moving_seconds, distance_meters, avg_speed, max_speed, avg_hr, max_hr, avg_cadence, max_cadence, avg_power, max_power, normalized_power, elevation_gain_meters, calories, lap_trigger, intensity'
+    )
+    .eq('user_id', userId)
+    .in('activity_id', activities.map((a) => a.id))
+    .order('lap_index', { ascending: true })
+
+  if (!data?.length) return []
+
+  const byActivity = new Map<string, ActivityLapRow[]>()
+  for (const row of data as Array<ActivityLapRow & { activity_id: string }>) {
+    const list = byActivity.get(row.activity_id) ?? []
+    list.push(row)
+    byActivity.set(row.activity_id, list)
+  }
+
+  const lines: string[] = []
+  for (const activity of activities) {
+    const laps = byActivity.get(activity.id)
+    if (!laps || laps.length < 2) continue
+    const formatted = formatLapsForCoach(laps)
+    if (!formatted.length) continue
+    lines.push('')
+    lines.push(
+      `### ${localDateKey(activity.start_time, timeZone)} · ${activity.title ?? activity.sport_type ?? 'actividad'}`
+    )
+    lines.push(...formatted)
+  }
+
+  if (!lines.length) return []
+  return ['', '## Vueltas (laps) de las últimas actividades', ...lines]
 }

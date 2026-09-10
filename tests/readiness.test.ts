@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { computeReadiness, formatReadiness, formatAthleteState } from '@/lib/training/readiness'
+import { buildReadinessInput } from '@/lib/training/readiness-input'
 
 describe('readiness', () => {
   it('returns high readiness for good signals', () => {
@@ -133,5 +134,37 @@ describe('readiness', () => {
     expect(lines.some((l) => l.includes('Body Battery'))).toBe(true)
     expect(lines.some((l) => l.includes('dolor'))).toBe(true)
     expect(lines.some((l) => l.includes('fuente:'))).toBe(true)
+  })
+})
+
+describe('buildReadinessInput', () => {
+  const recovery = [
+    { resting_hr: 58, hrv: 45, stress: 30, soreness: 4, motivation: 7, body_battery_high: 80, spo2_avg: 96 },
+    { resting_hr: 52, hrv: 55, stress: null, soreness: null, motivation: null },
+    { resting_hr: null, hrv: null, stress: null, soreness: null, motivation: null },
+  ]
+
+  it('takes the latest row and averages the rest as baseline', () => {
+    const input = buildReadinessInput({
+      form: -5,
+      recovery,
+      sleep: [{ duration_minutes: 450, sleep_score: 72 }, { duration_minutes: 400, sleep_score: 60 }],
+    })
+
+    expect(input.restingHr).toBe(58)
+    expect(input.baselineRestingHr).toBe(55)
+    expect(input.hrv).toBe(45)
+    expect(input.baselineHrv).toBe(50)
+    expect(input.sleepHours).toBe(7.5)
+    expect(input.sleepScore).toBe(72)
+    expect(input.bodyBattery).toBe(80)
+  })
+
+  it('returns nulls when there is nothing stored', () => {
+    const input = buildReadinessInput({ form: null, recovery: [], sleep: [] })
+    expect(input.restingHr).toBeNull()
+    expect(input.baselineHrv).toBeNull()
+    expect(input.sleepHours).toBeNull()
+    expect(computeReadiness(input).dataSources).toContain('sin datos')
   })
 })

@@ -9,6 +9,7 @@ export type CoachSession = {
   title?: string
   description?: string
   target_zone?: string
+  purpose?: string
 }
 
 export type CoachPlan = {
@@ -65,9 +66,11 @@ export function normalizeCoachSession(raw: unknown): CoachSession | null {
   const title = pick(row, ['title', 'name'])
   const description = pick(row, ['description', 'details'])
   const zone = pick(row, ['target_zone', 'zone'])
+  const purpose = pick(row, ['purpose', 'objetivo', 'goal'])
   const titleText = typeof title === 'string' ? title : undefined
   const descriptionText = typeof description === 'string' ? description : undefined
   const zoneText = typeof zone === 'string' ? zone : undefined
+  const purposeText = typeof purpose === 'string' ? purpose : undefined
   const type = resolveSessionKind({
     type: pick(row, ['type', 'workout_type', 'kind']) as string | undefined,
     title: titleText,
@@ -81,6 +84,7 @@ export function normalizeCoachSession(raw: unknown): CoachSession | null {
     title: titleText ? titleText.slice(0, 200) : undefined,
     description: descriptionText ? descriptionText.slice(0, 1000) : undefined,
     target_zone: (zoneText || resolveSessionZone({ title: titleText, description: descriptionText, kind: type })).slice(0, 20),
+    purpose: purposeText ? purposeText.slice(0, 500) : undefined,
   }
 }
 

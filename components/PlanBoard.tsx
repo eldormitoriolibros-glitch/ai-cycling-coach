@@ -23,6 +23,7 @@ export type ScheduledWorkout = {
   purpose: string | null
   rationale: string | null
   status: WorkoutStatus
+  completed_activity_id?: string | null
 }
 
 type DraftWorkout = {
@@ -84,7 +85,15 @@ function weekStats(sessions: ScheduledWorkout[]) {
   return { minutes, bike, strength }
 }
 
-export function PlanBoard({ workouts, today }: { workouts: ScheduledWorkout[]; today: string }) {
+export function PlanBoard({
+  workouts,
+  today,
+  focusDate,
+}: {
+  workouts: ScheduledWorkout[]
+  today: string
+  focusDate?: string
+}) {
   const router = useRouter()
   const supabase = createClient()
 
@@ -93,7 +102,8 @@ export function PlanBoard({ workouts, today }: { workouts: ScheduledWorkout[]; t
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
   const [view, setView] = useState<'week' | 'cycle'>('week')
-  const [weekStart, setWeekStart] = useState(() => startOfWeek(today))
+  const [reviewing, setReviewing] = useState<string | null>(null)
+  const [weekStart, setWeekStart] = useState(() => startOfWeek(focusDate ?? today))
   const splitting = useRef(false)
 
   const weekEnd = endOfWeek(weekStart)
@@ -216,11 +226,26 @@ export function PlanBoard({ workouts, today }: { workouts: ScheduledWorkout[]; t
     }
     router.refresh()
 
-    const row = workouts.find((w) => w.id === id)
-    if (status === 'completed' && row && !isStrengthSession(row)) {
-      fetch('/api/garmin/sync', { method: 'POST' })
-        .then(() => router.refresh())
-        .catch(() => {})
+    if (status !== 'completed') return
+
+    // The review needs the ride, so the route syncs Garmin before analysing.
+    setReviewing(id)
+    setSuccess('Sesión marcada. El entrenador está analizándola…')
+    try {
+      const response = await fetch(`/api/training/workouts/${id}/review`, { method: 'POST' })
+      const body = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(body.error ?? 'No se pudo generar la devolución.')
+      setSuccess(
+        body.sent
+          ? 'Listo: el entrenador te mandó la devolución de la sesión.'
+          : 'Sesión marcada como hecha.'
+      )
+    } catch (err) {
+      setSuccess(null)
+      setError(err instanceof Error ? err.message : 'No se pudo generar la devolución.')
+    } finally {
+      setReviewing(null)
+      router.refresh()
     }
   }
 
@@ -375,6 +400,7 @@ export function PlanBoard({ workouts, today }: { workouts: ScheduledWorkout[]; t
             today={today}
             sessions={weekSessions}
             onStatus={setStatus}
+            reviewing={reviewing}
           />
         ) : (
           <div className="space-y-4">
@@ -400,6 +426,7 @@ export function PlanBoard({ workouts, today }: { workouts: ScheduledWorkout[]; t
                     sessions={sessions}
                     compact
                     onStatus={setStatus}
+                    reviewing={reviewing}
                   />
                 </div>
               )
@@ -417,12 +444,14 @@ function WeekAgenda({
   sessions,
   compact,
   onStatus,
+  reviewing,
 }: {
   start: string
   today: string
   sessions: ScheduledWorkout[]
   compact?: boolean
   onStatus: (id: string, status: WorkoutStatus) => void
+  reviewing: string | null
 }) {
   const days = eachDay(start, addDays(start, 6))
   const byDate = new Map<string, ScheduledWorkout[]>()
@@ -463,10 +492,19 @@ function WeekAgenda({
                   actions={
                     w.status === 'scheduled' && date >= today ? (
                       <>
-                        <Button variant="secondary" onClick={() => onStatus(w.id, 'completed')}>
+                        <Button
+                          variant="secondary"
+                          loading={reviewing === w.id}
+                          disabled={reviewing !== null}
+                          onClick={() => onStatus(w.id, 'completed')}
+                        >
                           Hecho
                         </Button>
-                        <Button variant="secondary" onClick={() => onStatus(w.id, 'skipped')}>
+                        <Button
+                          variant="secondary"
+                          disabled={reviewing !== null}
+                          onClick={() => onStatus(w.id, 'skipped')}
+                        >
                           Saltar
                         </Button>
                       </>

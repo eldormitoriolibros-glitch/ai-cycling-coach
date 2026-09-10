@@ -44,6 +44,7 @@ const coachPlanSchema = z.object({
         title: z.string().max(200).optional(),
         description: z.string().max(1000).optional(),
         target_zone: z.string().max(20).optional(),
+        purpose: z.string().max(500).optional(),
       })
     )
     .min(1)

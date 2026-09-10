@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import dynamic from 'next/dynamic'
 import { Card, Alert } from '@/components/ui'
+import { CollapsibleSection } from '@/components/dashboard/CollapsibleSection'
 import {
   BarChart,
   Bar,
@@ -50,6 +51,8 @@ type ChartPoint = {
 type Props = {
   activity: ActivityRow & { maxHr?: number; ftp?: number }
   samples?: ActivitySample[]
+  /** Rendered between the route map and the charts (details + lap blocks). */
+  afterMap?: React.ReactNode
 }
 
 /**
@@ -181,7 +184,7 @@ function numericDomain(
   return [minAtZero ? 0 : Math.floor(min - padding), Math.ceil(max + padding)]
 }
 
-export function ActivityCharts({ activity, samples: initialSamples }: Props) {
+export function ActivityCharts({ activity, samples: initialSamples, afterMap }: Props) {
   const [realSamples, setRealSamples] = useState<ActivitySample[] | null>(
     initialSamples && initialSamples.length > 0 ? initialSamples : null
   )
@@ -255,25 +258,8 @@ export function ActivityCharts({ activity, samples: initialSamples }: Props) {
 
   return (
     <div className="space-y-4">
-      {/* Zone Info Alert */}
-      <Alert variant="info">
-        <strong>Zonas de entrenamiento:</strong> Usando estándares Strava/Garmin (bandas de 10% en pulso y potencia).
-        Se calculan con tus valores de FC máxima y FTP del perfil.{' '}
-        <a href="/profile" className="underline">
-          Actualiza tus métricas en el perfil
-        </a>{' '}
-        para ajustar los rangos.
-      </Alert>
-
-      {/* Data quality indicator */}
       {loadingSamples && (
         <Alert variant="info">⏳ Cargando datos de segundo a segundo…</Alert>
-      )}
-      {!loadingSamples && hasStreams && (
-        <Alert variant="info">
-          ✓ <strong>Datos de máxima precisión:</strong> Gráficos con ~{realSamples?.length?.toLocaleString()} muestras
-          por segundo. El eje de tiempo muestra solo tiempo en movimiento (sin paradas).
-        </Alert>
       )}
       {!loadingSamples && !hasStreams && (
         <Alert variant="info">
@@ -291,31 +277,6 @@ export function ActivityCharts({ activity, samples: initialSamples }: Props) {
         </Alert>
       )}
 
-      {/* Summary Stats */}
-      <Card className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <Stat
-          label="Distancia"
-          value={activity.distance_meters ? `${(activity.distance_meters / 1000).toFixed(1)} km` : '—'}
-        />
-        <Stat
-          label="Tiempo en movimiento"
-          value={
-            activity.moving_seconds
-              ? `${Math.floor(activity.moving_seconds / 3600)}h ${Math.floor((activity.moving_seconds % 3600) / 60)}m`
-              : '—'
-          }
-        />
-        <Stat label="Pulso medio" value={activity.avg_hr ? `${activity.avg_hr} ppm` : '—'} />
-        <Stat
-          label="Potencia media"
-          value={
-            activity.avg_power
-              ? `${Math.round(activity.avg_power)} W${activity.normalized_power ? ` (${Math.round(activity.normalized_power)} NP)` : ''}`
-              : '—'
-          }
-        />
-      </Card>
-
       {/* GPS Route */}
       {mapPoints.length > 1 && (
         <Card>
@@ -324,207 +285,9 @@ export function ActivityCharts({ activity, samples: initialSamples }: Props) {
         </Card>
       )}
 
-      {/* Heart Rate Time Series */}
-      {hasStreams && chartData?.hasHr && (
-        <Card>
-          <h3 className="mb-4 font-semibold">Pulso durante la salida</h3>
-          <ResponsiveContainer width="100%" height={250}>
-            <AreaChart data={timeSeries}>
-              <defs>
-                <linearGradient id="hrGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#ef4444" stopOpacity={0.8} />
-                  <stop offset="95%" stopColor="#ef4444" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="seconds" type="number" domain={['dataMin', 'dataMax']} tickFormatter={formatAxisTime} />
-              <YAxis domain={numericDomain(timeSeries, 'hr', 5)} />
-              <Tooltip
-                formatter={(value) => {
-                  if (typeof value === 'number') return `${Math.round(value)} ppm`
-                  return value
-                }}
-              />
-              <Area
-                type="monotone"
-                dataKey="hr"
-                stroke="#ef4444"
-                fillOpacity={1}
-                fill="url(#hrGradient)"
-                isAnimationActive={false}
-              />
-            </AreaChart>
-          </ResponsiveContainer>
-        </Card>
-      )}
+      {afterMap}
 
-      {/* Power Time Series - Only if real power data */}
-      {hasStreams && chartData?.hasPower && (
-        <Card>
-          <h3 className="mb-4 font-semibold">Potencia durante la salida</h3>
-          <ResponsiveContainer width="100%" height={250}>
-            <AreaChart data={timeSeries}>
-              <defs>
-                <linearGradient id="powerGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#06b6d4" stopOpacity={0.8} />
-                  <stop offset="95%" stopColor="#06b6d4" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="seconds" type="number" domain={['dataMin', 'dataMax']} tickFormatter={formatAxisTime} />
-              <YAxis domain={numericDomain(timeSeries, 'power', 20, true)} />
-              <Tooltip
-                formatter={(value) => {
-                  if (typeof value === 'number') return `${Math.round(value)} W`
-                  return value
-                }}
-              />
-              <Area
-                type="monotone"
-                dataKey="power"
-                stroke="#06b6d4"
-                fillOpacity={1}
-                fill="url(#powerGradient)"
-                isAnimationActive={false}
-              />
-            </AreaChart>
-          </ResponsiveContainer>
-        </Card>
-      )}
-
-      {/* Speed Time Series */}
-      {hasStreams && (
-      <Card>
-        <h3 className="mb-4 font-semibold">Velocidad durante la salida</h3>
-        <ResponsiveContainer width="100%" height={250}>
-          <AreaChart data={timeSeries}>
-            <defs>
-              <linearGradient id="speedGradient" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.8} />
-                <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="seconds" type="number" domain={['dataMin', 'dataMax']} tickFormatter={formatAxisTime} />
-            <YAxis label={{ value: 'km/h', angle: -90, position: 'insideLeft' }} domain={numericDomain(timeSeries, 'speed', 2, true)} />
-            <Tooltip
-              formatter={(value) => {
-                if (typeof value === 'number') return `${value.toFixed(1)} km/h`
-                return value
-              }}
-            />
-            <Area
-              type="monotone"
-              dataKey="speed"
-              stroke="#8b5cf6"
-              fillOpacity={1}
-              fill="url(#speedGradient)"
-              isAnimationActive={false}
-            />
-          </AreaChart>
-        </ResponsiveContainer>
-      </Card>
-      )}
-
-      {/* Elevation profile */}
-      {hasStreams && hasElevationData && (
-        <Card>
-          <h3 className="mb-4 font-semibold">Perfil de elevación</h3>
-          <ResponsiveContainer width="100%" height={200}>
-            <AreaChart data={timeSeries}>
-              <defs>
-                <linearGradient id="elevationGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#64748b" stopOpacity={0.8} />
-                  <stop offset="95%" stopColor="#64748b" stopOpacity={0.1} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="seconds" type="number" domain={['dataMin', 'dataMax']} tickFormatter={formatAxisTime} />
-              <YAxis label={{ value: 'm', angle: -90, position: 'insideLeft' }} domain={numericDomain(timeSeries, 'elevation', 10)} />
-              <Tooltip
-                formatter={(value) => {
-                  if (typeof value === 'number') return `${Math.round(value)} m`
-                  return value
-                }}
-              />
-              <Area
-                type="monotone"
-                dataKey="elevation"
-                stroke="#64748b"
-                fillOpacity={1}
-                fill="url(#elevationGradient)"
-                isAnimationActive={false}
-              />
-            </AreaChart>
-          </ResponsiveContainer>
-        </Card>
-      )}
-
-      {/* Temperature - Only if available */}
-      {hasStreams && realSamples?.some((s) => s.temperature !== null) && (
-        <Card>
-          <h3 className="mb-4 font-semibold">Temperatura corporal</h3>
-          <ResponsiveContainer width="100%" height={250}>
-            <LineChart data={timeSeries}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="seconds" type="number" domain={['dataMin', 'dataMax']} tickFormatter={formatAxisTime} />
-              <YAxis label={{ value: '°C', angle: -90, position: 'insideLeft' }} domain={numericDomain(timeSeries, 'temperature', 1)} />
-              <Tooltip
-                formatter={(value) => {
-                  if (typeof value === 'number') return `${value.toFixed(1)}°C`
-                  return value
-                }}
-              />
-              <Line
-                type="monotone"
-                dataKey="temperature"
-                stroke="#f97316"
-                dot={false}
-                isAnimationActive={false}
-                strokeWidth={1.5}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        </Card>
-      )}
-
-      {/* Respiration Rate - Only if available */}
-      {hasStreams && realSamples?.some((s) => s.respiration_rate !== null) && (
-        <Card>
-          <h3 className="mb-4 font-semibold">Frecuencia respiratoria</h3>
-          <ResponsiveContainer width="100%" height={200}>
-            <AreaChart data={timeSeries}>
-              <defs>
-                <linearGradient id="respirationGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#06b6d4" stopOpacity={0.6} />
-                  <stop offset="95%" stopColor="#06b6d4" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="seconds" type="number" domain={['dataMin', 'dataMax']} tickFormatter={formatAxisTime} />
-              <YAxis label={{ value: 'rpm', angle: -90, position: 'insideLeft' }} domain={numericDomain(timeSeries, 'respirationRate', 2)} />
-              <Tooltip
-                formatter={(value) => {
-                  if (typeof value === 'number') return `${value.toFixed(1)} rpm`
-                  return value
-                }}
-              />
-              <Area
-                type="monotone"
-                dataKey="respirationRate"
-                stroke="#06b6d4"
-                fillOpacity={1}
-                fill="url(#respirationGradient)"
-                isAnimationActive={false}
-              />
-            </AreaChart>
-          </ResponsiveContainer>
-        </Card>
-      )}
-
-      {/* Heart Rate Zones - moved later so charts flow: time series → power → speed → elevation → temp → respiration → cadence → HR zones */}
-
-      {/* Power Zones */}
+      {/* Zone distribution stays open: it is the fastest read of how the ride went. */}
       {displayPowerZones && (
         <Card>
           <h3 className="mb-4 font-semibold">Distribución de zonas de potencia</h3>
@@ -555,41 +318,6 @@ export function ActivityCharts({ activity, samples: initialSamples }: Props) {
         </Card>
       )}
 
-      {/* Cadence */}
-      {hasStreams && chartData?.hasCadence && (
-        <Card>
-          <h3 className="mb-4 font-semibold">Cadencia</h3>
-          <ResponsiveContainer width="100%" height={200}>
-            <AreaChart data={timeSeries}>
-              <defs>
-                <linearGradient id="cadenceGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#f97316" stopOpacity={0.7} />
-                  <stop offset="95%" stopColor="#f97316" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="seconds" type="number" domain={['dataMin', 'dataMax']} tickFormatter={formatAxisTime} />
-              <YAxis label={{ value: 'rpm', angle: -90, position: 'insideLeft' }} domain={numericDomain(timeSeries, 'cadence', 5, true)} />
-              <Tooltip
-                formatter={(value) => {
-                  if (typeof value === 'number') return `${Math.round(value)} rpm`
-                  return value
-                }}
-              />
-              <Area
-                type="monotone"
-                dataKey="cadence"
-                stroke="#f97316"
-                fillOpacity={1}
-                fill="url(#cadenceGradient)"
-                isAnimationActive={false}
-              />
-            </AreaChart>
-          </ResponsiveContainer>
-        </Card>
-      )}
-
-      {/* Heart Rate Zones (moved last among charts) */}
       {displayHrZones && (
         <Card>
           <h3 className="mb-4 font-semibold">Distribución de zonas de pulso</h3>
@@ -620,38 +348,230 @@ export function ActivityCharts({ activity, samples: initialSamples }: Props) {
         </Card>
       )}
 
-      {/* Additional Stats */}
-      {(activity.elevation_gain_meters || activity.max_cadence || activity.max_speed) && (
-        <Card className="grid grid-cols-2 gap-4 sm:grid-cols-3">
-          {activity.elevation_gain_meters && (
-            <Stat label="Ascenso total" value={`${Math.round(activity.elevation_gain_meters)} m`} />
-          )}
-          {activity.avg_cadence && (
-            <Stat label="Cadencia media" value={`${Math.round(activity.avg_cadence)} rpm`} />
-          )}
-          {activity.max_cadence && (
-            <Stat label="Cadencia máxima" value={`${Math.round(activity.max_cadence)} rpm`} />
-          )}
-          {activity.avg_speed && (
-            <Stat label="Velocidad media" value={`${(activity.avg_speed * 3.6).toFixed(1)} km/h`} />
-          )}
-          {activity.max_speed && (
-            <Stat label="Velocidad máxima" value={`${(activity.max_speed * 3.6).toFixed(1)} km/h`} />
-          )}
-          {activity.training_load && (
-            <Stat label="Carga de entrenamiento" value={`${Math.round(activity.training_load)}`} />
-          )}
-        </Card>
+      {/* Heart Rate Time Series */}
+      {hasStreams && chartData?.hasHr && (
+        <CollapsibleSection title="Pulso durante la salida">
+          <ResponsiveContainer width="100%" height={250}>
+            <AreaChart data={timeSeries}>
+              <defs>
+                <linearGradient id="hrGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#ef4444" stopOpacity={0.8} />
+                  <stop offset="95%" stopColor="#ef4444" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="seconds" type="number" domain={['dataMin', 'dataMax']} tickFormatter={formatAxisTime} />
+              <YAxis domain={numericDomain(timeSeries, 'hr', 5)} />
+              <Tooltip
+                formatter={(value) => {
+                  if (typeof value === 'number') return `${Math.round(value)} ppm`
+                  return value
+                }}
+              />
+              <Area
+                type="monotone"
+                dataKey="hr"
+                stroke="#ef4444"
+                fillOpacity={1}
+                fill="url(#hrGradient)"
+                isAnimationActive={false}
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        </CollapsibleSection>
       )}
-    </div>
-  )
-}
 
-function Stat({ label, value }: { label: string; value: string | number }) {
-  return (
-    <div>
-      <p className="text-xs text-slate-500">{label}</p>
-      <p className="text-lg font-semibold">{value}</p>
+      {/* Power Time Series - Only if real power data */}
+      {hasStreams && chartData?.hasPower && (
+        <CollapsibleSection title="Potencia durante la salida">
+          <ResponsiveContainer width="100%" height={250}>
+            <AreaChart data={timeSeries}>
+              <defs>
+                <linearGradient id="powerGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#06b6d4" stopOpacity={0.8} />
+                  <stop offset="95%" stopColor="#06b6d4" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="seconds" type="number" domain={['dataMin', 'dataMax']} tickFormatter={formatAxisTime} />
+              <YAxis domain={numericDomain(timeSeries, 'power', 20, true)} />
+              <Tooltip
+                formatter={(value) => {
+                  if (typeof value === 'number') return `${Math.round(value)} W`
+                  return value
+                }}
+              />
+              <Area
+                type="monotone"
+                dataKey="power"
+                stroke="#06b6d4"
+                fillOpacity={1}
+                fill="url(#powerGradient)"
+                isAnimationActive={false}
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        </CollapsibleSection>
+      )}
+
+      {/* Speed Time Series */}
+      {hasStreams && (
+      <CollapsibleSection title="Velocidad durante la salida">
+        <ResponsiveContainer width="100%" height={250}>
+          <AreaChart data={timeSeries}>
+            <defs>
+              <linearGradient id="speedGradient" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.8} />
+                <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="seconds" type="number" domain={['dataMin', 'dataMax']} tickFormatter={formatAxisTime} />
+            <YAxis label={{ value: 'km/h', angle: -90, position: 'insideLeft' }} domain={numericDomain(timeSeries, 'speed', 2, true)} />
+            <Tooltip
+              formatter={(value) => {
+                if (typeof value === 'number') return `${value.toFixed(1)} km/h`
+                return value
+              }}
+            />
+            <Area
+              type="monotone"
+              dataKey="speed"
+              stroke="#8b5cf6"
+              fillOpacity={1}
+              fill="url(#speedGradient)"
+              isAnimationActive={false}
+            />
+          </AreaChart>
+        </ResponsiveContainer>
+      </CollapsibleSection>
+      )}
+
+      {/* Elevation profile */}
+      {hasStreams && hasElevationData && (
+        <CollapsibleSection title="Perfil de elevación">
+          <ResponsiveContainer width="100%" height={200}>
+            <AreaChart data={timeSeries}>
+              <defs>
+                <linearGradient id="elevationGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#64748b" stopOpacity={0.8} />
+                  <stop offset="95%" stopColor="#64748b" stopOpacity={0.1} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="seconds" type="number" domain={['dataMin', 'dataMax']} tickFormatter={formatAxisTime} />
+              <YAxis label={{ value: 'm', angle: -90, position: 'insideLeft' }} domain={numericDomain(timeSeries, 'elevation', 10)} />
+              <Tooltip
+                formatter={(value) => {
+                  if (typeof value === 'number') return `${Math.round(value)} m`
+                  return value
+                }}
+              />
+              <Area
+                type="monotone"
+                dataKey="elevation"
+                stroke="#64748b"
+                fillOpacity={1}
+                fill="url(#elevationGradient)"
+                isAnimationActive={false}
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        </CollapsibleSection>
+      )}
+
+      {/* Temperature - Only if available */}
+      {hasStreams && realSamples?.some((s) => s.temperature !== null) && (
+        <CollapsibleSection title="Temperatura corporal">
+          <ResponsiveContainer width="100%" height={250}>
+            <LineChart data={timeSeries}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="seconds" type="number" domain={['dataMin', 'dataMax']} tickFormatter={formatAxisTime} />
+              <YAxis label={{ value: '°C', angle: -90, position: 'insideLeft' }} domain={numericDomain(timeSeries, 'temperature', 1)} />
+              <Tooltip
+                formatter={(value) => {
+                  if (typeof value === 'number') return `${value.toFixed(1)}°C`
+                  return value
+                }}
+              />
+              <Line
+                type="monotone"
+                dataKey="temperature"
+                stroke="#f97316"
+                dot={false}
+                isAnimationActive={false}
+                strokeWidth={1.5}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </CollapsibleSection>
+      )}
+
+      {/* Respiration Rate - Only if available */}
+      {hasStreams && realSamples?.some((s) => s.respiration_rate !== null) && (
+        <CollapsibleSection title="Frecuencia respiratoria">
+          <ResponsiveContainer width="100%" height={200}>
+            <AreaChart data={timeSeries}>
+              <defs>
+                <linearGradient id="respirationGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#06b6d4" stopOpacity={0.6} />
+                  <stop offset="95%" stopColor="#06b6d4" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="seconds" type="number" domain={['dataMin', 'dataMax']} tickFormatter={formatAxisTime} />
+              <YAxis label={{ value: 'rpm', angle: -90, position: 'insideLeft' }} domain={numericDomain(timeSeries, 'respirationRate', 2)} />
+              <Tooltip
+                formatter={(value) => {
+                  if (typeof value === 'number') return `${value.toFixed(1)} rpm`
+                  return value
+                }}
+              />
+              <Area
+                type="monotone"
+                dataKey="respirationRate"
+                stroke="#06b6d4"
+                fillOpacity={1}
+                fill="url(#respirationGradient)"
+                isAnimationActive={false}
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        </CollapsibleSection>
+      )}
+
+      {/* Cadence */}
+      {hasStreams && chartData?.hasCadence && (
+        <CollapsibleSection title="Cadencia">
+          <ResponsiveContainer width="100%" height={200}>
+            <AreaChart data={timeSeries}>
+              <defs>
+                <linearGradient id="cadenceGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#f97316" stopOpacity={0.7} />
+                  <stop offset="95%" stopColor="#f97316" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="seconds" type="number" domain={['dataMin', 'dataMax']} tickFormatter={formatAxisTime} />
+              <YAxis label={{ value: 'rpm', angle: -90, position: 'insideLeft' }} domain={numericDomain(timeSeries, 'cadence', 5, true)} />
+              <Tooltip
+                formatter={(value) => {
+                  if (typeof value === 'number') return `${Math.round(value)} rpm`
+                  return value
+                }}
+              />
+              <Area
+                type="monotone"
+                dataKey="cadence"
+                stroke="#f97316"
+                fillOpacity={1}
+                fill="url(#cadenceGradient)"
+                isAnimationActive={false}
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        </CollapsibleSection>
+      )}
     </div>
   )
 }

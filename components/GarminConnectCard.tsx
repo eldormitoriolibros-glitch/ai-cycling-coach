@@ -42,6 +42,10 @@ export function GarminConnectCard({ initial }: { initial: ConnectionState }) {
   const [error, setError] = useState<string | null>(null)
   const [syncResult, setSyncResult] = useState<SyncResult | null>(null)
   const [backfill, setBackfill] = useState<BackfillState | null>(null)
+  const [lapsBusy, setLapsBusy] = useState(false)
+  const [lapsResult, setLapsResult] = useState<string | null>(null)
+  const [lapsProgress, setLapsProgress] = useState<{ scanned: number; activities: number } | null>(null)
+  const cancelLaps = useRef(false)
   const cancelBackfill = useRef(false)
   const runningRef = useRef(false)
 
@@ -194,6 +198,54 @@ export function GarminConnectCard({ initial }: { initial: ConnectionState }) {
     }
   }
 
+  /** Walks the whole Garmin history page by page, keeping the cursor client-side. */
+  const handleLaps = async () => {
+    if (lapsBusy) return
+    setLapsBusy(true)
+    setLapsResult(null)
+    setError(null)
+    cancelLaps.current = false
+
+    let cursor = 0
+    let scanned = 0
+    let activities = 0
+    let laps = 0
+
+    try {
+      for (;;) {
+        if (cancelLaps.current) break
+
+        const res = await fetch('/api/garmin/laps', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cursor }),
+        })
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.error || 'No se pudieron traer las vueltas.')
+
+        cursor = data.cursor ?? cursor
+        scanned += data.scanned ?? 0
+        activities += data.activitiesWithLaps ?? 0
+        laps += data.lapsStored ?? 0
+        setLapsProgress({ scanned, activities })
+
+        if (data.done) break
+      }
+
+      setLapsResult(
+        activities > 0
+          ? `Listo: ${laps} vueltas en ${activities} actividades (${scanned} revisadas).`
+          : `Revisé ${scanned} actividades y ninguna tiene vueltas marcadas con el botón lap.`
+      )
+      router.refresh()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudieron traer las vueltas.')
+    } finally {
+      setLapsBusy(false)
+      setLapsProgress(null)
+    }
+  }
+
   if (state.connected) {
     return (
       <Card className="space-y-4">
@@ -238,6 +290,44 @@ export function GarminConnectCard({ initial }: { initial: ConnectionState }) {
             )}
           </Alert>
         )}
+
+        <div className="space-y-2 rounded-md border border-slate-300 p-3">
+          <div>
+            <h3 className="text-sm font-semibold">Traer bloques (vueltas)</h3>
+            <p className="text-xs text-slate-500">
+              Las vueltas que cortaste con el botón lap, para ver cada bloque de la sesión y que el
+              entrenador lo analice. Recorre todo tu historial; podés pausar y retomar cuando quieras.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="secondary"
+              onClick={handleLaps}
+              loading={lapsBusy}
+              disabled={syncing || backfill?.status === 'running'}
+            >
+              {lapsBusy ? 'Buscando…' : 'Traer bloques'}
+            </Button>
+            {lapsBusy && (
+              <>
+                <span className="text-xs text-slate-500">
+                  {lapsProgress
+                    ? `${lapsProgress.scanned} actividades revisadas · ${lapsProgress.activities} con bloques`
+                    : 'Empezando…'}
+                </span>
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    cancelLaps.current = true
+                  }}
+                >
+                  Pausar
+                </Button>
+              </>
+            )}
+            {lapsResult && <span className="text-xs text-green-700">{lapsResult}</span>}
+          </div>
+        </div>
 
         <div className="space-y-2 rounded-md border border-slate-300 p-3">
           <div>

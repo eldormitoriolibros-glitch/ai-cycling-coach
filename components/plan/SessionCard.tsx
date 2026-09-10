@@ -1,6 +1,8 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
+import { Activity } from 'lucide-react'
 import type { WorkoutStatus } from '@/lib/types/database'
 import { looksStrength } from '@/lib/training/split-sessions'
 import { blocksForBikeSession, strengthExercises } from '@/lib/training/workout-blocks'
@@ -27,6 +29,7 @@ export type PlanSession = {
   rationale?: string | null
   status?: WorkoutStatus
   estimated_load?: number | null
+  completed_activity_id?: string | null
 }
 
 const STATUS_LABEL: Record<WorkoutStatus, string> = {
@@ -73,18 +76,9 @@ export function SessionCard({
     kind,
   })
   const strength = looksStrength(session.title, kind)
-  const bikeBlocks = strength
-    ? []
-    : blocksForBikeSession({
-        description: session.description,
-        minutes: session.duration_minutes,
-        zone,
-        kind,
-        title: session.title,
-      })
   const strengthRows = strength ? strengthExercises(session.description) : []
   const tip = considerationsFor(kind)
-  const fromTitle = expandIntervalShorthand(session.title)
+  const fromTitle = expandIntervalShorthand(session.title, session.description)
   const description =
     fromTitle && looksGenericEnduranceText(session.description)
       ? formatBikeDescription({
@@ -94,6 +88,16 @@ export function SessionCard({
           mainWork: fromTitle,
         })
       : session.description
+  // Blocks read the same text the athlete sees, so table and prose can't disagree.
+  const bikeBlocks = strength
+    ? []
+    : blocksForBikeSession({
+        description,
+        minutes: session.duration_minutes,
+        zone,
+        kind,
+        title: session.title,
+      })
   const purpose =
     kind === 'threshold' && /base aer/i.test(session.purpose ?? '')
       ? 'Empujar el FTP: bloques de calidad en Z4 / Sweet Spot, no un rodaje de conversación.'
@@ -250,6 +254,16 @@ export function SessionCard({
               <h3 className="text-[10px] font-semibold uppercase tracking-wide text-muted">Prescripción</h3>
               <p className="mt-0.5 text-xs text-muted whitespace-pre-wrap">{description}</p>
             </section>
+          )}
+
+          {session.completed_activity_id && (
+            <Link
+              href={`/activities/${session.completed_activity_id}`}
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-accent-600 hover:underline dark:text-accent-400"
+            >
+              <Activity aria-hidden className="h-3.5 w-3.5" />
+              Ver la actividad
+            </Link>
           )}
 
           {(tip || session.rationale) && (

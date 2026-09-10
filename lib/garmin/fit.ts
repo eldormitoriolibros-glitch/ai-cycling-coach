@@ -36,6 +36,31 @@ export type ParsedFitActivity = {
   sweatLossMl: number | null
   garminTrainingLoad: number | null
   records: FitRecordSample[]
+  laps: FitLap[]
+}
+
+/** One lap-button split from the FIT file, used to build activity_laps. */
+export type FitLap = {
+  lapIndex: number
+  startOffsetSeconds: number | null
+  elapsedSeconds: number | null
+  movingSeconds: number | null
+  distanceMeters: number | null
+  avgSpeed: number | null
+  maxSpeed: number | null
+  avgHr: number | null
+  maxHr: number | null
+  avgCadence: number | null
+  maxCadence: number | null
+  avgPower: number | null
+  maxPower: number | null
+  normalizedPower: number | null
+  elevationGain: number | null
+  elevationLoss: number | null
+  calories: number | null
+  avgTemperature: number | null
+  lapTrigger: string | null
+  intensity: string | null
 }
 
 /** One per-second record from the FIT file, used to build activity_samples. */
@@ -109,6 +134,58 @@ function extractSessionRecords(
         respirationRate: readNumber(r.respiration_rate) ?? readNumber(r.enhanced_respiration_rate) ?? null,
         latitude: readNumber(r.position_lat),
         longitude: readNumber(r.position_long),
+      }
+    })
+}
+
+/**
+ * Laps that belong to a session, in ride order. FIT stores them flat, so they
+ * are filtered by the session window rather than by a parent reference.
+ */
+function extractSessionLaps(
+  laps: Array<Record<string, unknown>>,
+  session: Record<string, unknown>
+): FitLap[] {
+  const sessionStart = session.start_time instanceof Date ? session.start_time : new Date(String(session.start_time))
+  if (Number.isNaN(sessionStart.getTime())) return []
+
+  const durationSeconds =
+    readNumber(session.total_elapsed_time) ?? readNumber(session.total_timer_time) ?? 24 * 3600
+  const sessionEnd = new Date(sessionStart.getTime() + durationSeconds * 1000 + 60_000)
+
+  return laps
+    .filter((lap) => {
+      const start = lap.start_time instanceof Date ? lap.start_time : null
+      return start !== null && start >= new Date(sessionStart.getTime() - 60_000) && start <= sessionEnd
+    })
+    .sort((a, b) => (a.start_time as Date).getTime() - (b.start_time as Date).getTime())
+    .map((lap, index) => {
+      const start = lap.start_time as Date
+      const elapsed = readNumber(lap.total_elapsed_time)
+      const moving = readNumber(lap.total_timer_time)
+      const ascent = readNumber(lap.total_ascent)
+      const descent = readNumber(lap.total_descent)
+      return {
+        lapIndex: index + 1,
+        startOffsetSeconds: Math.max(0, Math.round((start.getTime() - sessionStart.getTime()) / 1000)),
+        elapsedSeconds: elapsed,
+        movingSeconds: moving ?? elapsed,
+        distanceMeters: readNumber(lap.total_distance),
+        avgSpeed: readNumber(lap.avg_speed) ?? readNumber(lap.enhanced_avg_speed),
+        maxSpeed: readNumber(lap.max_speed) ?? readNumber(lap.enhanced_max_speed),
+        avgHr: readNumber(lap.avg_heart_rate),
+        maxHr: readNumber(lap.max_heart_rate),
+        avgCadence: readNumber(lap.avg_cadence),
+        maxCadence: readNumber(lap.max_cadence),
+        avgPower: readNumber(lap.avg_power),
+        maxPower: readNumber(lap.max_power),
+        normalizedPower: readNumber(lap.normalized_power),
+        elevationGain: ascent,
+        elevationLoss: descent,
+        calories: readNumber(lap.total_calories),
+        avgTemperature: readNumber(lap.avg_temperature),
+        lapTrigger: readString(lap.lap_trigger),
+        intensity: readString(lap.intensity),
       }
     })
 }
@@ -241,6 +318,7 @@ function activityFromRecords(records: Array<Record<string, unknown>>): ParsedFit
     sweatLossMl: null,
     garminTrainingLoad: null,
     records: samples,
+    laps: [],
   }
 }
 
@@ -249,6 +327,7 @@ export async function parseFitFile(buffer: ArrayBuffer | Buffer): Promise<Parsed
 
   const sessions = Array.isArray(data?.sessions) ? data.sessions : []
   const records = Array.isArray(data?.records) ? data.records : []
+  const laps = Array.isArray(data?.laps) ? data.laps : []
 
   if (sessions.length === 0) {
     const fallback = activityFromRecords(records)
@@ -313,6 +392,7 @@ export async function parseFitFile(buffer: ArrayBuffer | Buffer): Promise<Parsed
       sweatLossMl,
       garminTrainingLoad,
       records: extractSessionRecords(records, session),
+      laps: extractSessionLaps(laps, session),
     }
   })
 }
@@ -385,6 +465,7 @@ export async function buildFitImportRows(
         },
         externalId,
         records: activity.records,
+        laps: activity.laps,
       },
     ]
   })

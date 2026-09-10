@@ -60,6 +60,7 @@ const fitToday: ParsedFitActivity = {
   sweatLossMl: null,
   garminTrainingLoad: null,
   records: [],
+  laps: [],
   garminActivityId: '12345',
 }
 

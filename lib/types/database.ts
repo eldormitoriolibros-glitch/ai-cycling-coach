@@ -154,8 +154,35 @@ type WorkoutRow = {
   rationale: string | null
   status: WorkoutStatus
   completed_activity_id: string | null
+  review_sent_at: string | null
   created_at: string
   updated_at: string
+}
+
+type ActivityLapRow = {
+  id: number
+  user_id: string
+  activity_id: string
+  lap_index: number
+  start_offset_seconds: number | null
+  elapsed_seconds: number | null
+  moving_seconds: number | null
+  distance_meters: number | null
+  avg_speed: number | null
+  max_speed: number | null
+  avg_hr: number | null
+  max_hr: number | null
+  avg_cadence: number | null
+  max_cadence: number | null
+  avg_power: number | null
+  max_power: number | null
+  normalized_power: number | null
+  elevation_gain_meters: number | null
+  elevation_loss_meters: number | null
+  calories: number | null
+  avg_temperature: number | null
+  lap_trigger: string | null
+  intensity: string | null
 }
 
 type CoachMessageRow = {
@@ -327,6 +354,12 @@ export interface Database {
         Row: GarminConnectionRow
         Insert: Insert<GarminConnectionRow, 'user_id' | 'garmin_email' | 'tokens_encrypted'>
         Update: Partial<GarminConnectionRow>
+        Relationships: []
+      }
+      activity_laps: {
+        Row: ActivityLapRow
+        Insert: Insert<ActivityLapRow, 'user_id' | 'activity_id' | 'lap_index'>
+        Update: Partial<ActivityLapRow>
         Relationships: []
       }
     }

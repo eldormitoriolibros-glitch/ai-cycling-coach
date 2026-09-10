@@ -6,6 +6,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { extractFitReport } from './archive'
 import { parseFitFile, buildFitImportRows, type ParsedFitActivity } from './fit'
 import { enrichActivities } from './fit-enrich'
+import { saveActivityLaps } from './laps-store'
 
 import 'server-only'
 
@@ -178,7 +179,10 @@ export async function ingestFitActivities(
 
   for (const dbRow of upserted ?? []) {
     const match = items.find((item) => item.externalId === dbRow.external_id)
-    if (!match || match.records.length === 0) continue
+    if (!match) continue
+
+    await saveActivityLaps(userId, dbRow.id, match.laps)
+    if (match.records.length === 0) continue
 
     const sampleRows = match.records.map((r) => ({
       user_id: userId,

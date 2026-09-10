@@ -156,3 +156,11 @@ body::before {
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }
+
+/* Leaflet gives its panes and controls z-index 400–1000, which lifts the map
+   over the sticky header. A stacking context on the container keeps it inside
+   its card. */
+.leaflet-container {
+  position: relative;
+  z-index: 0;
+}

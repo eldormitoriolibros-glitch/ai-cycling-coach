@@ -216,6 +216,7 @@ export type CoachSession = {
   title?: string
   description?: string
   target_zone?: string
+  purpose?: string
 }
 
 export type CoachPlanInput = {
@@ -239,6 +240,7 @@ function expandCoachSessions(sessions: CoachSession[]): CoachSession[] {
         title: part.title,
         description: part.kind === 'strength' ? 'Sesión de fuerza, independiente de la bici.' : w.description,
         target_zone: part.kind === 'strength' ? 'Fuerza' : w.target_zone,
+        purpose: w.purpose,
       })
     }
   }
@@ -294,7 +296,7 @@ export async function coachPlanToDraft(userId: string, plan: CoachPlanInput): Pr
     const power = kind === 'strength' || !ftp || !template.powerFactor ? null : Math.round(ftp * template.powerFactor)
     const hr = kind === 'strength' || !maxHr || !template.hrFactor ? null : Math.round(maxHr * template.hrFactor)
     const rawDescription = w.description?.trim()
-    const fromTitle = expandIntervalShorthand(w.title)
+    const fromTitle = expandIntervalShorthand(w.title, rawDescription)
     const mainWork =
       fromTitle && (!rawDescription || looksGenericEnduranceText(rawDescription))
         ? fromTitle
@@ -324,7 +326,7 @@ export async function coachPlanToDraft(userId: string, plan: CoachPlanInput): Pr
       target_zone: zone,
       target_power: power != null ? Math.min(1000, Math.max(30, power)) : null,
       target_hr: hr != null ? Math.min(250, Math.max(60, hr)) : null,
-      purpose: template.purpose,
+      purpose: (w.purpose?.trim() || template.purpose).slice(0, 500),
       estimated_load: kind === 'strength' ? 0 : Math.min(1000, loadFor(minutes, template.intensityFactor)),
     }
   })

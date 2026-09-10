@@ -27,6 +27,16 @@ type LoadData = {
   dailyActivities: Record<string, DailyActivity>
 }
 
+const RANGE_OPTIONS = [
+  { days: 14, label: '2 sem' },
+  { days: 28, label: '4 sem' },
+  { days: 42, label: '6 sem' },
+  { days: 90, label: '3 meses' },
+  { days: 180, label: '6 meses' },
+] as const
+
+const RANGE_KEY = 'trainer:load-range-days'
+
 function formatDate(dateStr: string): string {
   const d = new Date(dateStr + 'T12:00:00')
   return d.toLocaleDateString('es-AR', { day: 'numeric', month: 'short' })
@@ -37,40 +47,106 @@ function formatDateShort(dateStr: string): string {
   return d.toLocaleDateString('es-AR', { day: 'numeric', month: 'short' })
 }
 
+function rangeLabel(days: number): string {
+  return RANGE_OPTIONS.find((r) => r.days === days)?.label ?? `${days} días`
+}
+
 export function TrainingLoadDashboard({
-  days = 42,
+  days: initialDays = 42,
   compact = false,
   showStats = true,
+  allowRangeSelect = true,
 }: {
   days?: number
   compact?: boolean
   showStats?: boolean
+  allowRangeSelect?: boolean
 }) {
+  const [days, setDays] = useState(initialDays)
   const [data, setData] = useState<LoadData | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    if (!allowRangeSelect) return
+    const stored = Number(localStorage.getItem(RANGE_KEY))
+    if (RANGE_OPTIONS.some((r) => r.days === stored)) setDays(stored)
+  }, [allowRangeSelect])
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
     fetch(`/api/training/load-history?days=${days}`)
       .then((r) => r.json())
-      .then(setData)
-      .catch(() => setData(null))
-      .finally(() => setLoading(false))
+      .then((json) => {
+        if (!cancelled) setData(json)
+      })
+      .catch(() => {
+        if (!cancelled) setData(null)
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
   }, [days])
 
+  const pickRange = (next: number) => {
+    setDays(next)
+    if (allowRangeSelect) localStorage.setItem(RANGE_KEY, String(next))
+  }
+
+  const rangePicker = allowRangeSelect ? (
+    <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+      <p className="text-[10px] font-semibold uppercase tracking-wide text-muted">Rango</p>
+      <div className="inline-flex flex-wrap gap-1 rounded-lg border border-surface p-1">
+        {RANGE_OPTIONS.map((r) => (
+          <button
+            key={r.days}
+            type="button"
+            onClick={() => pickRange(r.days)}
+            className={`rounded-md px-2.5 py-1 text-xs font-medium transition ${
+              days === r.days
+                ? 'bg-accent-500 text-white'
+                : 'text-muted hover:text-foreground'
+            }`}
+          >
+            {r.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  ) : null
+
   if (loading) {
-    return compact ? (
-      <p className="text-sm text-muted animate-pulse">Cargando gráficos…</p>
-    ) : (
-      <Card><p className="text-sm text-muted animate-pulse">Cargando datos de carga...</p></Card>
+    return (
+      <div>
+        {rangePicker}
+        {compact ? (
+          <p className="text-sm text-muted animate-pulse">Cargando gráficos…</p>
+        ) : (
+          <Card>
+            <p className="text-sm text-muted animate-pulse">Cargando datos de carga...</p>
+          </Card>
+        )}
+      </div>
     )
   }
-  if (!data || !data.loadTimeline.length) return null
+  if (!data || !data.loadTimeline.length) {
+    return (
+      <div>
+        {rangePicker}
+        <p className="text-sm text-muted">Sin datos de carga en este rango.</p>
+      </div>
+    )
+  }
 
   const timeline = data.loadTimeline
   const lastPoint = timeline[timeline.length - 1]
   const chartHeight = compact ? 120 : 200
+  const tickEvery = Math.max(1, Math.floor(timeline.length / (compact ? 4 : 7)))
 
-  const last28 = timeline.slice(-28).map((p) => ({
+  const dailyData = timeline.map((p) => ({
     date: formatDateShort(p.date),
     fullDate: p.date,
     load: p.dailyLoad,
@@ -104,66 +180,97 @@ export function TrainingLoadDashboard({
     : 'rounded-lg border border-surface p-0 border-0'
 
   return (
-    <div className={compact ? 'grid gap-3 lg:grid-cols-3' : 'space-y-4'}>
-      <div className={compact ? chartShell : undefined}>
-        {!compact && (
-          <Card>
-            <h3 className="mb-1 font-semibold">Carga de ejercicio diaria</h3>
-            <p className="mb-3 text-xs text-muted">Últimos 28 días</p>
-            <DailyLoadChart data={last28} dailyActivities={data.dailyActivities} height={chartHeight} />
-          </Card>
-        )}
-        {compact && (
-          <>
-            <h3 className="mb-1 text-xs font-semibold">Carga diaria</h3>
-            <p className="mb-2 text-[10px] text-muted">28 días</p>
-            <DailyLoadChart data={last28} dailyActivities={data.dailyActivities} height={chartHeight} compact />
-          </>
-        )}
-      </div>
+    <div>
+      {rangePicker}
+      <div className={compact ? 'grid gap-3 lg:grid-cols-3' : 'space-y-4'}>
+        <div className={compact ? chartShell : undefined}>
+          {!compact && (
+            <Card>
+              <h3 className="mb-1 font-semibold">Carga de ejercicio diaria</h3>
+              <p className="mb-3 text-xs text-muted">{rangeLabel(days)}</p>
+              <DailyLoadChart
+                data={dailyData}
+                dailyActivities={data.dailyActivities}
+                height={chartHeight}
+                tickEvery={tickEvery}
+              />
+            </Card>
+          )}
+          {compact && (
+            <>
+              <h3 className="mb-1 text-xs font-semibold">Carga diaria</h3>
+              <p className="mb-2 text-[10px] text-muted">{rangeLabel(days)}</p>
+              <DailyLoadChart
+                data={dailyData}
+                dailyActivities={data.dailyActivities}
+                height={chartHeight}
+                tickEvery={tickEvery}
+                compact
+              />
+            </>
+          )}
+        </div>
 
-      <div className={compact ? chartShell : undefined}>
-        {!compact ? (
-          <Card>
-            <div className="mb-3 flex items-baseline gap-3">
-              <h3 className="font-semibold">Carga de entreno (7 días)</h3>
-              <span className="text-xs text-muted">Rango óptimo: {optimalLow}–{optimalHigh}</span>
-            </div>
-            <RollingLoadChart data={rollingData} optimalLow={optimalLow} optimalHigh={optimalHigh} height={220} />
-          </Card>
-        ) : (
-          <>
-            <h3 className="mb-1 text-xs font-semibold">Carga 7 días</h3>
-            <p className="mb-2 text-[10px] text-muted">Óptimo {optimalLow}–{optimalHigh}</p>
-            <RollingLoadChart data={rollingData} optimalLow={optimalLow} optimalHigh={optimalHigh} height={chartHeight} compact />
-          </>
-        )}
-      </div>
-
-      <div className={compact ? chartShell : undefined}>
-        {!compact ? (
-          <Card>
-            <h3 className="mb-1 font-semibold">Fitness vs Fatiga</h3>
-            <p className="mb-3 text-xs text-muted">
-              CTL (Fitness) · ATL (Fatiga) · TSB (Forma) — {timeline.length} días
-            </p>
-            <FitnessFatigueChart data={fitnessData} height={250} compact={false} />
-            {showStats && lastPoint && (
-              <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-                <MiniStat label="Fitness (CTL)" value={lastPoint.chronicLoad} color="text-blue-600" />
-                <MiniStat label="Fatiga (ATL)" value={lastPoint.acuteLoad} color="text-red-500" />
-                <MiniStat label="Forma (TSB)" value={lastPoint.form} color="text-green-600" />
-                <MiniStat label="Rampa 7d" value={lastPoint.rampRate} color="text-slate-600" />
+        <div className={compact ? chartShell : undefined}>
+          {!compact ? (
+            <Card>
+              <div className="mb-3 flex items-baseline gap-3">
+                <h3 className="font-semibold">Carga de entreno (7 días)</h3>
+                <span className="text-xs text-muted">
+                  Rango óptimo: {optimalLow}–{optimalHigh}
+                </span>
               </div>
-            )}
-          </Card>
-        ) : (
-          <>
-            <h3 className="mb-1 text-xs font-semibold">Fitness vs Fatiga</h3>
-            <p className="mb-2 text-[10px] text-muted">CTL · ATL · TSB</p>
-            <FitnessFatigueChart data={fitnessData} height={chartHeight} compact />
-          </>
-        )}
+              <RollingLoadChart
+                data={rollingData}
+                optimalLow={optimalLow}
+                optimalHigh={optimalHigh}
+                height={220}
+                tickEvery={tickEvery}
+              />
+            </Card>
+          ) : (
+            <>
+              <h3 className="mb-1 text-xs font-semibold">Carga 7 días</h3>
+              <p className="mb-2 text-[10px] text-muted">
+                Óptimo {optimalLow}–{optimalHigh}
+              </p>
+              <RollingLoadChart
+                data={rollingData}
+                optimalLow={optimalLow}
+                optimalHigh={optimalHigh}
+                height={chartHeight}
+                tickEvery={tickEvery}
+                compact
+              />
+            </>
+          )}
+        </div>
+
+        <div className={compact ? chartShell : undefined}>
+          {!compact ? (
+            <Card>
+              <h3 className="mb-1 font-semibold">Fitness vs Fatiga</h3>
+              <p className="mb-3 text-xs text-muted">
+                CTL · ATL · TSB — {timeline.length} días
+              </p>
+              <FitnessFatigueChart data={fitnessData} height={250} tickEvery={tickEvery} />
+              {showStats && lastPoint && (
+                <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  <MiniStat label="Fitness (CTL)" value={lastPoint.chronicLoad} color="text-blue-600" />
+                  <MiniStat label="Fatiga (ATL)" value={lastPoint.acuteLoad} color="text-red-500" />
+                  <MiniStat label="Forma (TSB)" value={lastPoint.form} color="text-green-600" />
+                  <MiniStat label="Rampa 7d" value={lastPoint.rampRate} color="text-slate-600" />
+                </div>
+              )}
+            </Card>
+          ) : (
+            <>
+              <h3 className="mb-1 text-xs font-semibold">Fitness vs Fatiga</h3>
+              <p className="mb-2 text-[10px] text-muted">CTL · ATL · TSB</p>
+              <FitnessFatigueChart data={fitnessData} height={chartHeight} tickEvery={tickEvery} compact />
+            </>
+          )}
+        </div>
       </div>
     </div>
   )
@@ -173,22 +280,20 @@ function DailyLoadChart({
   data,
   dailyActivities,
   height,
+  tickEvery,
   compact = false,
 }: {
   data: Array<{ date: string; fullDate: string; load: number }>
   dailyActivities: LoadData['dailyActivities']
   height: number
+  tickEvery: number
   compact?: boolean
 }) {
   return (
     <ResponsiveContainer width="100%" height={height}>
-      <BarChart data={data} barSize={compact ? 6 : 12}>
+      <BarChart data={data} barSize={compact ? Math.max(2, Math.min(6, 180 / Math.max(data.length, 1))) : 12}>
         <CartesianGrid strokeDasharray="3 3" vertical={false} />
-        <XAxis
-          dataKey="date"
-          tick={{ fontSize: compact ? 8 : 10 }}
-          interval={Math.floor(data.length / (compact ? 4 : 7))}
-        />
+        <XAxis dataKey="date" tick={{ fontSize: compact ? 8 : 10 }} interval={tickEvery} />
         <YAxis tick={{ fontSize: compact ? 8 : 10 }} width={compact ? 28 : undefined} />
         <Tooltip
           content={({ active, payload }) => {
@@ -200,7 +305,9 @@ function DailyLoadChart({
                 <p className="font-semibold">{d.date}</p>
                 <p>Carga: {d.load}</p>
                 {acts?.activities.map((a, i) => (
-                  <p key={i} className="text-muted">{a.title ?? a.sport} — {Math.round(a.load ?? 0)}</p>
+                  <p key={i} className="text-muted">
+                    {a.title ?? a.sport} — {Math.round(a.load ?? 0)}
+                  </p>
                 ))}
               </div>
             )
@@ -217,23 +324,21 @@ function RollingLoadChart({
   optimalLow,
   optimalHigh,
   height,
+  tickEvery,
   compact = false,
 }: {
   data: Array<{ date: string; rolling7d: number }>
   optimalLow: number
   optimalHigh: number
   height: number
+  tickEvery: number
   compact?: boolean
 }) {
   return (
     <ResponsiveContainer width="100%" height={height}>
       <ComposedChart data={data}>
         <CartesianGrid strokeDasharray="3 3" />
-        <XAxis
-          dataKey="date"
-          tick={{ fontSize: compact ? 8 : 10 }}
-          interval={Math.floor(data.length / (compact ? 4 : 6))}
-        />
+        <XAxis dataKey="date" tick={{ fontSize: compact ? 8 : 10 }} interval={tickEvery} />
         <YAxis tick={{ fontSize: compact ? 8 : 10 }} width={compact ? 28 : undefined} />
         <Tooltip formatter={(value) => [Math.round(Number(value)), 'Carga 7d']} />
         <ReferenceArea
@@ -263,21 +368,19 @@ function RollingLoadChart({
 function FitnessFatigueChart({
   data,
   height,
+  tickEvery,
   compact = false,
 }: {
   data: Array<{ date: string; fitness: number | null; fatigue: number | null; form: number | null }>
   height: number
+  tickEvery: number
   compact?: boolean
 }) {
   return (
     <ResponsiveContainer width="100%" height={height}>
       <LineChart data={data}>
         <CartesianGrid strokeDasharray="3 3" />
-        <XAxis
-          dataKey="date"
-          tick={{ fontSize: compact ? 8 : 10 }}
-          interval={Math.floor(data.length / (compact ? 4 : 6))}
-        />
+        <XAxis dataKey="date" tick={{ fontSize: compact ? 8 : 10 }} interval={tickEvery} />
         <YAxis tick={{ fontSize: compact ? 8 : 10 }} width={compact ? 28 : undefined} />
         <Tooltip />
         {!compact && (

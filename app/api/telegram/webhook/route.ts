@@ -3,19 +3,24 @@ import { safeEqual } from '@/lib/crypto'
 import { telegramEnv } from '@/lib/env'
 import { askCoach } from '@/lib/coach'
 import { buildDailyNudge } from '@/lib/coach/nudge'
+import { markTodaySessionDone, type MarkDoneResult, type SessionScope } from '@/lib/coach/mark-done'
+import { sendSessionReview } from '@/lib/coach/session-review'
 import { formatWeekAgenda } from '@/lib/coach/week-agenda'
 import { sendMessage, type TelegramUpdate } from '@/lib/telegram/client'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { splitPlanBlock } from '@/lib/training/coach-plan'
 
 export const dynamic = 'force-dynamic'
-export const maxDuration = 60
+// /bici pulls from Garmin and then writes a full review, well past 60s.
+export const maxDuration = 300
 
 const HELP = [
   'Soy tu entrenador de ciclismo.',
   '',
   'Escribime lo que quieras, por ejemplo: "¿qué entreno hoy?".',
   'Comandos: /hoy la sesión del día. /semana el plan de esta semana.',
+  '/bici marca la sesión de bici de hoy como hecha. /fuerza, la de fuerza.',
+  'Cuando marcás una sesión te mando la devolución completa.',
   'Para cambiar el plan, pedímelo (ej. "pasá el umbral al jueves") y después confirmá con un sí.',
   '',
   'Para vincular esta cuenta, generá un código en la web (Conexiones) y mandámelo así:',
@@ -102,6 +107,15 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true })
     }
 
+    const scope: SessionScope | null = text === '/bici' ? 'bike' : text === '/fuerza' ? 'strength' : null
+    if (scope) {
+      const result = await markTodaySessionDone(linked.id, scope, linked.timezone || 'UTC')
+      await sendMessage(chatId, markDoneMessage(scope, result))
+      // The review is a full model call: confirm first, then send it separately.
+      if (result.workoutId) await sendSessionReview(linked.id, result.workoutId).catch(() => false)
+      return NextResponse.json({ ok: true })
+    }
+
     const reply = await askCoach(linked.id, text, 'telegram')
     await sendMessage(chatId, splitPlanBlock(reply).text || reply)
   } catch (err) {
@@ -110,4 +124,18 @@ export async function POST(request: Request) {
   }
 
   return NextResponse.json({ ok: true })
+}
+
+function markDoneMessage(scope: SessionScope, result: MarkDoneResult): string {
+  const kind = scope === 'bike' ? 'bici' : 'fuerza'
+
+  if (result.status === 'not_found') {
+    return `Hoy no tenés ninguna sesión de ${kind} en el plan. Si la hiciste igual, contame qué hiciste y lo anoto.`
+  }
+  if (result.status === 'already_done') {
+    return `La sesión de ${kind} de hoy ya estaba marcada como hecha.`
+  }
+
+  const name = result.title ? ` (${result.title})` : ''
+  return `Listo, marqué la ${kind} de hoy${name}. Dame un momento y te paso la devolución.`
 }

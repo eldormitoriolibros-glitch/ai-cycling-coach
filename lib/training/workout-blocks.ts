@@ -21,7 +21,7 @@ const DEFAULT_STRENGTH: StrengthExercise[] = [
   { exercise: 'Vuelta: movilidad suave', sets: '1', reps: '5 min', note: 'Cierre, sin fatiga' },
 ]
 
-import { parseCompactIntervals } from './session-prescription'
+import { parseCompactIntervals, parseRestMinutes } from './session-prescription'
 
 const HARD_KIND = /tempo|threshold|vo2|umbral/i
 
@@ -139,7 +139,7 @@ export function blocksForBikeSession(input: {
   } else if (compact) {
     blocks.push({
       label: 'Recuperación entre series',
-      minutes: compact.restMinutes,
+      minutes: compact.restExplicit ? compact.restMinutes : (parseRestMinutes(text) ?? compact.restMinutes),
       repeats: compact.repeats > 1 ? compact.repeats - 1 : null,
       intensity: 'Z1–Z2',
     })

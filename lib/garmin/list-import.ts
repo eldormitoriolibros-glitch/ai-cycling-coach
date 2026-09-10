@@ -99,5 +99,6 @@ export function listActivityToParsedFit(activity: any): ParsedFitActivity | null
     sweatLossMl: readNum(activity.waterEstimated),
     garminTrainingLoad: readNum(activity.activityTrainingLoad),
     records: [],
+    laps: [],
   }
 }

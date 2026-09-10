@@ -3,6 +3,7 @@ import { estimateTrainingLoad } from '@/lib/training/load'
 import type { ParsedFitActivity } from './fit'
 import { findMatch, findTimeMatch, type ExistingActivity } from './activity-match'
 import { garminStoredExternalId } from './list-import'
+import { saveActivityLaps } from './laps-store'
 
 import 'server-only'
 
@@ -334,6 +335,11 @@ export async function enrichActivities(
         }
       }
       activityTouched = true
+    }
+
+    if (fit.laps.length > 1) {
+      const saved = await saveActivityLaps(userId, best.id, fit.laps)
+      if (saved > 0) activityTouched = true
     }
 
     if (activityTouched) enriched++

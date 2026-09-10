@@ -5,6 +5,8 @@ export type CompactIntervals = {
   minutes: number
   intensity: string
   restMinutes: number
+  /** True when the rest was stated in the text instead of inferred. */
+  restExplicit: boolean
 }
 
 const KIND_RANK: Record<SessionKind, number> = {
@@ -27,8 +29,34 @@ export function parseCompactIntervals(text: string | null | undefined): CompactI
 
   const around = raw.slice(Math.max(0, (match.index ?? 0) - 12), (match.index ?? 0) + match[0].length + 40)
   const intensity = inferZoneFromText(around) ?? inferZoneFromText(raw) ?? (minutes <= 5 ? 'Z5' : minutes <= 15 ? 'Z4' : 'Z3')
-  const restMinutes = minutes <= 5 ? minutes : Math.max(3, Math.round(minutes / 2))
-  return { repeats, minutes, intensity, restMinutes }
+  const stated = parseRestMinutes(raw)
+  const restMinutes = stated ?? (minutes <= 5 ? minutes : Math.max(3, Math.round(minutes / 2)))
+  return { repeats, minutes, intensity, restMinutes, restExplicit: stated != null }
+}
+
+/**
+ * Recovery between intervals as written by the coach: "recuperando 3m",
+ * "3 min suaves entre series", "4x5m/3m". Without this the rest time gets
+ * invented and the plan contradicts what the coach actually said.
+ */
+export function parseRestMinutes(text: string | null | undefined): number | null {
+  const raw = (text ?? '').replace(/\s+/g, ' ').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  if (!raw.trim()) return null
+
+  const patterns = [
+    /(?:\d+\s*[x×]\s*\d+\s*m?(?:in)?)\s*[/(]\s*(\d+)\s*m?(?:in)?/i,
+    /(?:recuper\w*|descanso|pausa|rec\.?|off)\s*(?:de|con|:)?\s*(\d+)\s*(?:m\b|min\b|minutos\b|')/i,
+    /(\d+)\s*(?:m\b|min\b|minutos\b|')\s*(?:de\s+)?(?:recuper\w*|suaves?|faciles?|flojos?|off|entre\s+(?:series|bloques|cada))/i,
+  ]
+
+  for (const pattern of patterns) {
+    const found = raw.match(pattern)
+    if (found) {
+      const value = Number(found[1])
+      if (Number.isFinite(value) && value > 0 && value <= 30) return value
+    }
+  }
+  return null
 }
 
 export function inferZoneFromText(text: string | null | undefined): string | null {
@@ -92,11 +120,19 @@ export function resolveSessionZone(input: {
   )
 }
 
-/** Turns "3x10m Z4/Sweet Spot" into a prescription the block parser understands. */
-export function expandIntervalShorthand(title: string | null | undefined): string | null {
+/**
+ * Turns "3x10m Z4/Sweet Spot" into a prescription the block parser understands.
+ * `context` (the coach's own prose) is where an explicit recovery time lives,
+ * so pass it whenever it is available instead of inferring the rest.
+ */
+export function expandIntervalShorthand(
+  title: string | null | undefined,
+  context?: string | null
+): string | null {
   const compact = parseCompactIntervals(title)
   if (!compact) return null
-  return `${compact.repeats} bloques de ${compact.minutes} min en ${compact.intensity} con ${compact.restMinutes} min suaves entre cada uno`
+  const rest = compact.restExplicit ? compact.restMinutes : (parseRestMinutes(context) ?? compact.restMinutes)
+  return `${compact.repeats} bloques de ${compact.minutes} min en ${compact.intensity} con ${rest} min suaves entre cada uno`
 }
 
 export function looksGenericEnduranceText(text: string | null | undefined): boolean {

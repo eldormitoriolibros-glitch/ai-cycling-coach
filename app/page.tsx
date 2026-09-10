@@ -12,7 +12,11 @@ import {
 import { createClient } from '@/lib/supabase/server'
 import { WeeklyCalendarStrip } from '@/components/calendar/WeeklyCalendarStrip'
 import { CollapsibleSection } from '@/components/dashboard/CollapsibleSection'
+import { FormStatusChips, FormStatusMeters } from '@/components/dashboard/FormStatusMeters'
+import { ReadinessMeter } from '@/components/dashboard/ReadinessMeter'
 import { TrainingLoadDashboard } from '@/components/TrainingLoadDashboard'
+import { assessFormStatus } from '@/lib/training/form-status'
+import { readinessFrom } from '@/lib/training/readiness-input'
 
 export const dynamic = 'force-dynamic'
 
@@ -33,16 +37,50 @@ export default async function HomePage() {
     data: { user },
   } = await supabase.auth.getUser()
 
-  const [{ data: profile }, { data: load }] = await Promise.all([
+  const historyFrom = new Date(Date.now() - 90 * 86400_000).toISOString().slice(0, 10)
+
+  const [{ data: profile }, { data: loadHistory }, { data: recovery }, { data: sleep }] = await Promise.all([
     supabase.from('users').select('name, timezone').eq('id', user!.id).maybeSingle(),
     supabase
       .from('training_load')
       .select('date, chronic_load, acute_load, form, ramp_rate')
       .eq('user_id', user!.id)
+      .gte('date', historyFrom)
+      .order('date', { ascending: true }),
+    supabase
+      .from('recovery_metrics')
+      .select('resting_hr, hrv, stress, soreness, motivation, body_battery_high, spo2_avg')
+      .eq('user_id', user!.id)
       .order('date', { ascending: false })
-      .limit(1)
-      .maybeSingle(),
+      .limit(7),
+    supabase
+      .from('sleep')
+      .select('duration_minutes, sleep_score')
+      .eq('user_id', user!.id)
+      .order('date', { ascending: false })
+      .limit(7),
   ])
+
+  const load = loadHistory?.length ? loadHistory[loadHistory.length - 1] : null
+  const ctlHistory = (loadHistory ?? [])
+    .map((row) => row.chronic_load)
+    .filter((v): v is number => v != null)
+
+  const status = load
+    ? assessFormStatus({
+        form: load.form,
+        chronicLoad: load.chronic_load,
+        acuteLoad: load.acute_load,
+        rampRate: load.ramp_rate,
+        ctlHistory,
+      })
+    : null
+
+  const readiness = readinessFrom({
+    form: load?.form ?? null,
+    recovery: recovery ?? [],
+    sleep: sleep ?? [],
+  })
 
   const firstName = (profile?.name || user?.email?.split('@')[0] || 'ciclista').split(' ')[0]
 
@@ -61,29 +99,32 @@ export default async function HomePage() {
             Hola, {firstName}.
           </h1>
           <p className="mt-1 text-sm text-muted">
-            {load ? describeForm(load.form) : 'Sincronizá tus actividades para empezar a ver tu carga.'}
+            {status ? status.summary : 'Sincronizá tus actividades para empezar a ver tu carga.'}
           </p>
         </div>
       </section>
 
       <WeeklyCalendarStrip />
 
-      {load && (
+      {status && (
         <CollapsibleSection
           title="Estado de forma"
           defaultOpen
-          summary={
-            <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <Metric label="Fitness (CTL)" value={fmt(load.chronic_load)} />
-              <Metric label="Fatiga (ATL)" value={fmt(load.acute_load)} />
-              <Metric label="Forma (TSB)" value={fmt(load.form)} tone={formTone(load.form)} />
-              <Metric label="Rampa 7d" value={fmt(load.ramp_rate)} />
-            </dl>
-          }
+          summary={<FormStatusChips metrics={[status.form, status.fatigue, status.fitness, status.ramp]} />}
         >
-          <p className="text-sm text-muted">{describeForm(load.form)}</p>
-          <p className="mt-2 text-xs text-muted">
-            Valores calculados por esta app a partir de tus datos, no provistos por Strava.
+          <FormStatusMeters
+            form={status.form}
+            fatigue={status.fatigue}
+            fitness={status.fitness}
+            ramp={status.ramp}
+          />
+          <div className="mt-4">
+            <ReadinessMeter readiness={readiness} />
+          </div>
+          <p className="mt-3 text-xs text-muted">
+            Forma y rampa usan rangos típicos de ciclismo. Fitness se compara con tu CTL de los últimos 90 días;
+            fatiga se mide como ATL/CTL. Los cuatro salen solo de tus actividades; el readiness es el único que
+            suma sueño y sensaciones. Valores calculados por esta app, no por Strava ni Garmin.
           </p>
         </CollapsibleSection>
       )}
@@ -115,19 +156,6 @@ export default async function HomePage() {
   )
 }
 
-function Metric({ label, value, tone }: { label: string; value: string; tone?: string }) {
-  return (
-    <div>
-      <dt className="text-[10px] uppercase tracking-wide text-muted">{label}</dt>
-      <dd className={`text-lg font-semibold ${tone || 'text-foreground'}`}>{value}</dd>
-    </div>
-  )
-}
-
-function fmt(value: number | null): string {
-  return value === null ? '—' : Math.round(value).toString()
-}
-
 function formatToday(timezone?: string | null): string {
   const label = new Intl.DateTimeFormat('es-AR', {
     weekday: 'long',
@@ -136,21 +164,4 @@ function formatToday(timezone?: string | null): string {
     timeZone: timezone || 'America/Argentina/Buenos_Aires',
   }).format(new Date())
   return label.charAt(0).toUpperCase() + label.slice(1)
-}
-
-function formTone(tsb: number | null): string {
-  if (tsb === null) return 'text-foreground'
-  if (tsb > 5) return 'text-emerald-400'
-  if (tsb > -10) return 'text-foreground'
-  if (tsb > -30) return 'text-amber-400'
-  return 'text-red-400'
-}
-
-function describeForm(tsb: number | null): string {
-  if (tsb === null) return 'Sin datos suficientes todavía.'
-  if (tsb > 20) return 'Muy descansado. Buen momento para competir, o para volver a cargar.'
-  if (tsb > 5) return 'Fresco. Listo para una sesión de calidad.'
-  if (tsb > -10) return 'Equilibrado. Podés seguir con el plan.'
-  if (tsb > -30) return 'Cargado. Normal en una semana fuerte; cuidá el descanso.'
-  return 'Muy fatigado. Considerá bajar la carga unos días.'
 }

@@ -19,12 +19,44 @@ export default async function RecoveryPage() {
 
   const today = localDateKey(new Date(), profile?.timezone || 'UTC')
 
-  const { data: recent } = await supabase
-    .from('recovery_metrics')
-    .select('date, resting_hr, hrv, soreness, motivation')
-    .eq('user_id', user!.id)
-    .order('date', { ascending: false })
-    .limit(10)
+  const [{ data: recovery }, { data: sleep }] = await Promise.all([
+    supabase
+      .from('recovery_metrics')
+      .select('date, resting_hr, hrv, soreness, motivation')
+      .eq('user_id', user!.id)
+      .order('date', { ascending: false })
+      .limit(14),
+    supabase
+      .from('sleep')
+      .select('date, source, duration_minutes, sleep_score')
+      .eq('user_id', user!.id)
+      .order('date', { ascending: false })
+      .limit(28),
+  ])
+
+  // Sleep and recovery live in separate tables, and each can have a manual and
+  // a Garmin row per day. What the athlete typed wins over what Garmin guessed.
+  const sleepByDate = new Map<string, { duration_minutes: number | null; sleep_score: number | null }>()
+  for (const row of sleep ?? []) {
+    const current = sleepByDate.get(row.date)
+    if (!current || (row.source === 'manual' && row.duration_minutes != null)) {
+      sleepByDate.set(row.date, { duration_minutes: row.duration_minutes, sleep_score: row.sleep_score })
+    }
+  }
+
+  const dates = Array.from(
+    new Set([...(recovery ?? []).map((r) => r.date), ...Array.from(sleepByDate.keys())])
+  )
+    .sort((a, b) => b.localeCompare(a))
+    .slice(0, 10)
+
+  const recoveryByDate = new Map((recovery ?? []).map((r) => [r.date, r]))
+  const recent = dates.map((date) => ({
+    date,
+    ...recoveryByDate.get(date),
+    sleepHours: sleepByDate.get(date)?.duration_minutes,
+    sleepScore: sleepByDate.get(date)?.sleep_score,
+  }))
 
   return (
     <div className="space-y-4">
@@ -45,6 +77,8 @@ export default async function RecoveryPage() {
             <thead>
               <tr className="text-left text-xs uppercase tracking-wide text-slate-400">
                 <th className="py-1 font-medium">Fecha</th>
+                <th className="py-1 text-right font-medium">Sueño</th>
+                <th className="py-1 text-right font-medium">Calidad</th>
                 <th className="py-1 text-right font-medium">FC rep.</th>
                 <th className="py-1 text-right font-medium">HRV</th>
                 <th className="py-1 text-right font-medium">Dolor</th>
@@ -55,6 +89,10 @@ export default async function RecoveryPage() {
               {recent.map((row) => (
                 <tr key={row.date}>
                   <td className="py-2">{row.date}</td>
+                  <td className="py-2 text-right tabular-nums">
+                    {row.sleepHours != null ? `${(row.sleepHours / 60).toFixed(1)} h` : '—'}
+                  </td>
+                  <td className="py-2 text-right tabular-nums">{row.sleepScore ?? '—'}</td>
                   <td className="py-2 text-right tabular-nums">{row.resting_hr ?? '—'}</td>
                   <td className="py-2 text-right tabular-nums">{row.hrv ?? '—'}</td>
                   <td className="py-2 text-right tabular-nums">{row.soreness ?? '—'}</td>
