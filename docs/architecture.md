@@ -73,7 +73,7 @@ Garmin / phone / head unit
 | `lib/training/planner.ts` | Pure weekly plan builder constrained by availability, CTL, TSB and block position |
 | `lib/training/plan-service.ts` | Loads state, calls the planner, asks Gemini for a narrative, commits on approval |
 | `lib/training/reconcile.ts` | Marks past sessions completed or skipped by matching rides to dates |
-| `lib/coach/` | System prompt (the coaching rules), athlete context builder, conversation persistence, daily nudge |
+| `lib/coach/` | System prompt (rules + doctrine in `lib/coach/doctrine.ts`), athlete context builder, conversation persistence, daily nudge |
 | `lib/telegram/` | Bot API client |
 
 ### Why no per-second samples

@@ -9,6 +9,7 @@ import { formatAthleteState } from '@/lib/training/readiness'
 import { readinessFrom } from '@/lib/training/readiness-input'
 import { loadPreviousSnapshot } from '@/lib/training/snapshot'
 import { formatLoadSeries, formatPowerContext, formatExecution, formatCycleHistory } from './execution'
+import { suggestIntensityDistribution } from './doctrine'
 
 import 'server-only'
 
@@ -129,6 +130,7 @@ export async function buildAthleteContext(userId: string): Promise<string> {
   const availableDays = (availability.data ?? [])
     .filter((a) => a.bike_minutes > 0 || a.strength_minutes > 0)
     .sort((x, y) => x.day_of_week - y.day_of_week)
+  const weeklyBikeMinutes = (availability.data ?? []).reduce((sum, a) => sum + (a.bike_minutes ?? 0), 0)
   if (availableDays.length) {
     for (const a of availableDays) {
       const parts = [
@@ -137,8 +139,10 @@ export async function buildAthleteContext(userId: string): Promise<string> {
       ].filter(Boolean)
       lines.push(`- ${DAYS[a.day_of_week]}: ${parts.join(', ')}`)
     }
+    lines.push(suggestIntensityDistribution(weeklyBikeMinutes).hint)
   } else {
     lines.push('- no configurada')
+    lines.push(suggestIntensityDistribution(null).hint)
   }
 
   lines.push('')

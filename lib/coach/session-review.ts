@@ -6,6 +6,9 @@ import { loadActivitySamples } from '@/lib/activities/samples'
 import { localDateKey } from '@/lib/training/dates'
 import { formatDistance, formatDuration } from '@/lib/utils'
 import { buildAthleteContext } from './context'
+import { COACH_DOCTRINE_REVIEW } from './doctrine'
+import { compareSession, formatSessionComparison } from './session-compare'
+import { composeReviewSystemPrompt } from './system-prompt'
 
 import 'server-only'
 
@@ -14,8 +17,8 @@ const REVIEW_RULES = `Sos el entrenador de ciclismo de este atleta. Acaba de mar
 Escribí en español rioplatense, texto plano (sin markdown, sin tablas, sin asteriscos), máximo 12 líneas.
 
 Estructura:
-1. Una línea de veredicto: ¿cumplió la sesión como estaba prescripta?
-2. Comparación concreta prescripto vs ejecutado: duración, intensidad/zona, y si hay vueltas, bloque por bloque (potencia, pulso, cadencia). Si una vuelta dice "cae" o "sube", es la forma dentro del bloque (primera vs segunda mitad), no el promedio. Usá números reales del contexto.
+1. Una línea de veredicto: copiá el de "Comparación (calculada por la app)" si está. No lo suavices ni lo contradigas.
+2. Comparación concreta prescripto vs ejecutado con esos números: duración, intensidad/zona, y si hay vueltas, bloque por bloque (potencia, pulso, cadencia). Si una vuelta dice "cae" o "sube", es la forma dentro del bloque (primera vs segunda mitad), no el promedio. Usá números reales del contexto.
 3. Qué salió bien y qué corregir, con una causa probable.
 4. Qué implica para la próxima sesión (sin cambiar el plan salvo que haga falta; si hace falta, proponelo y pedí confirmación).
 
@@ -133,6 +136,22 @@ export async function sendSessionReview(userId: string, workoutId: string): Prom
   }
 
   const context = await buildAthleteContext(userId)
+  const comparison = compareSession({
+    workoutType: workout.workout_type,
+    title: workout.title,
+    description: workout.description,
+    durationMinutes: workout.duration_minutes,
+    targetZone: workout.target_zone,
+    targetPower: workout.target_power,
+    targetHr: workout.target_hr,
+    hasActivity: Boolean(activity),
+    movingSeconds: activity?.moving_seconds,
+    avgPower: activity?.avg_power,
+    normalizedPower: activity?.normalized_power,
+    intensityFactor: activity?.intensity_factor,
+    avgHr: activity?.avg_hr,
+    laps,
+  })
   const prompt = [
     '# Sesión prescripta',
     ...describePrescription(workout as ReviewWorkout),
@@ -140,11 +159,14 @@ export async function sendSessionReview(userId: string, workoutId: string): Prom
     '# Cómo la ejecutó',
     ...describeExecution(activity, laps, samples),
     '',
+    '# Comparación (calculada por la app)',
+    ...formatSessionComparison(comparison),
+    '',
     '# Contexto del atleta',
     context,
   ].join('\n')
 
-  const text = await generateReply(REVIEW_RULES, [
+  const text = await generateReply(composeReviewSystemPrompt(COACH_DOCTRINE_REVIEW, REVIEW_RULES), [
     { role: 'user', text: prompt },
   ]).catch(() => null)
 

@@ -1,0 +1,146 @@
+import { parseCompactIntervals } from '@/lib/training/session-prescription'
+import { TEMPLATES, type SessionKind } from '@/lib/training/planner2'
+
+export type CompareLap = {
+  moving_seconds?: number | null
+  elapsed_seconds?: number | null
+  avg_power?: number | null
+  avg_hr?: number | null
+}
+
+export type SessionCompareInput = {
+  workoutType: string | null | undefined
+  title?: string | null
+  description?: string | null
+  durationMinutes: number | null | undefined
+  targetZone?: string | null
+  targetPower: number | null | undefined
+  targetHr: number | null | undefined
+  hasActivity: boolean
+  movingSeconds: number | null | undefined
+  avgPower: number | null | undefined
+  normalizedPower: number | null | undefined
+  intensityFactor: number | null | undefined
+  avgHr: number | null | undefined
+  laps?: CompareLap[] | null
+}
+
+export type SessionVerdict =
+  | 'sin_salida'
+  | 'como_prescripto'
+  | 'mas_suave'
+  | 'mas_duro'
+  | 'mas_corto'
+  | 'mas_largo'
+  | 'calidad_fallida'
+
+export type SessionCompareResult = {
+  verdict: SessionVerdict
+  label: string
+  notes: string[]
+}
+
+const LABEL: Record<SessionVerdict, string> = {
+  sin_salida: 'sin salida',
+  como_prescripto: 'como lo prescripto',
+  mas_suave: 'más suave',
+  mas_duro: 'más duro',
+  mas_corto: 'más corto',
+  mas_largo: 'más largo',
+  calidad_fallida: 'calidad incompleta',
+}
+
+const EASY_KINDS = new Set(['recovery', 'endurance', 'long'])
+
+function isSessionKind(value: string | null | undefined): value is SessionKind {
+  return Boolean(value && value in TEMPLATES)
+}
+
+function lapSeconds(lap: CompareLap): number {
+  return lap.moving_seconds ?? lap.elapsed_seconds ?? 0
+}
+
+function countWorkLaps(laps: CompareLap[], workMinutes: number): number {
+  const target = workMinutes * 60
+  return laps.filter((lap) => {
+    const seconds = lapSeconds(lap)
+    return seconds >= target * 0.7 && seconds <= target * 1.3
+  }).length
+}
+
+/**
+ * Deterministic prescribed-vs-executed read. The model narrates this; it
+ * should not invent a different verdict.
+ */
+export function compareSession(input: SessionCompareInput): SessionCompareResult {
+  if (!input.hasActivity) {
+    return { verdict: 'sin_salida', label: LABEL.sin_salida, notes: [] }
+  }
+
+  const notes: string[] = []
+  const executedMin =
+    input.movingSeconds != null && input.movingSeconds > 0 ? input.movingSeconds / 60 : null
+  const prescribedMin = input.durationMinutes != null && input.durationMinutes > 0 ? input.durationMinutes : null
+
+  let durationLean: 'corto' | 'largo' | null = null
+  if (prescribedMin != null && executedMin != null) {
+    const ratio = executedMin / prescribedMin
+    if (ratio < 0.75) durationLean = 'corto'
+    else if (ratio > 1.2) durationLean = 'largo'
+    notes.push(
+      `duración ${Math.round(executedMin)} min vs ${Math.round(prescribedMin)} prescriptos (${Math.round(ratio * 100)}%)`
+    )
+  }
+
+  const executedPower = input.normalizedPower ?? input.avgPower
+  let intensityLean: 'suave' | 'duro' | null = null
+
+  if (input.targetPower && executedPower) {
+    const delta = (executedPower - input.targetPower) / input.targetPower
+    notes.push(
+      `potencia ${Math.round(executedPower)} W vs ${Math.round(input.targetPower)} W objetivo (${delta >= 0 ? '+' : ''}${Math.round(delta * 100)}%)`
+    )
+    if (delta <= -0.08) intensityLean = 'suave'
+    else if (delta >= 0.08) intensityLean = 'duro'
+  } else if (input.targetHr && input.avgHr) {
+    const delta = (input.avgHr - input.targetHr) / input.targetHr
+    notes.push(
+      `pulso ${Math.round(input.avgHr)} ppm vs ${Math.round(input.targetHr)} ppm objetivo (${delta >= 0 ? '+' : ''}${Math.round(delta * 100)}%)`
+    )
+    if (delta <= -0.08) intensityLean = 'suave'
+    else if (delta >= 0.08) intensityLean = 'duro'
+  } else if (typeof input.intensityFactor === 'number' && isSessionKind(input.workoutType)) {
+    const expected = TEMPLATES[input.workoutType].intensityFactor
+    const delta = input.intensityFactor - expected
+    notes.push(`IF ${input.intensityFactor.toFixed(2)} vs ${expected.toFixed(2)} típico de ${input.workoutType}`)
+    if (delta <= -0.08) intensityLean = 'suave'
+    else if (delta >= 0.08) intensityLean = 'duro'
+  }
+
+  if (EASY_KINDS.has(input.workoutType ?? '') && intensityLean === 'duro') {
+    notes.push('la base se fue de zona: no es un estímulo extra, es un Z2 fallido')
+  }
+
+  const compact = parseCompactIntervals(input.title) ?? parseCompactIntervals(input.description)
+  let missedIntervals = false
+  if (compact && input.laps && input.laps.length >= 2) {
+    const done = countWorkLaps(input.laps, compact.minutes)
+    notes.push(`intervalos ${compact.repeats}×${compact.minutes} min · vueltas de trabajo: ${done}`)
+    if (done <= compact.repeats - 2 || done === 0) missedIntervals = true
+  }
+
+  let verdict: SessionVerdict = 'como_prescripto'
+  if (missedIntervals) verdict = 'calidad_fallida'
+  else if (intensityLean === 'suave') verdict = 'mas_suave'
+  else if (intensityLean === 'duro') verdict = 'mas_duro'
+  else if (durationLean === 'corto') verdict = 'mas_corto'
+  else if (durationLean === 'largo') verdict = 'mas_largo'
+
+  return { verdict, label: LABEL[verdict], notes }
+}
+
+export function formatSessionComparison(result: SessionCompareResult): string[] {
+  const lines = [`veredicto: ${result.label}`]
+  for (const note of result.notes) lines.push(note)
+  return lines
+}

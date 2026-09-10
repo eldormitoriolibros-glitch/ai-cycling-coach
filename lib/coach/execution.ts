@@ -5,7 +5,7 @@
 import { addDays, dayOfWeek, localDateKey } from '@/lib/training/dates'
 import { formatDuration } from '@/lib/utils'
 import type { PowerSummary } from '@/lib/training/ftp'
-import { TEMPLATES } from '@/lib/training/planner2'
+import { compareSession } from './session-compare'
 
 export type LoadPoint = {
   date: string
@@ -25,9 +25,11 @@ export type WorkoutLite = {
   target_zone: string | null
   target_power: number | null
   target_hr: number | null
+  completed_activity_id?: string | null
 }
 
 export type ActivityLite = {
+  id?: string
   start_time: string
   title: string | null
   sport_type: string | null
@@ -35,6 +37,7 @@ export type ActivityLite = {
   avg_power: number | null
   normalized_power: number | null
   intensity_factor: number | null
+  avg_hr?: number | null
   training_load: number | null
 }
 
@@ -145,7 +148,8 @@ export function formatExecution(
     }`
 
     const acts = actByDate.get(w.scheduled_date) ?? []
-    const activity = acts[0] ?? null
+    const activity =
+      (w.completed_activity_id ? acts.find((a) => a.id === w.completed_activity_id) : null) ?? acts[0] ?? null
 
     let actual = 'sin salida'
     if (activity) {
@@ -158,24 +162,20 @@ export function formatExecution(
       actual += ` (estado: ${w.status})`
     }
 
-    // verdict
-    let verdict = 'hecho'
-    if (!activity) {
-      verdict = 'sin salida'
-    } else if (typeof activity.intensity_factor === 'number' && w.workout_type && (w.workout_type in TEMPLATES)) {
-      const expected = (TEMPLATES as any)[w.workout_type].intensityFactor as number
-      const delta = activity.intensity_factor! - expected
-      if (delta < -0.08) verdict = 'más suave'
-      else if (delta > 0.08) verdict = 'más duro'
-      else verdict = 'como lo prescripto'
-    } else if (w.duration_minutes && activity.moving_seconds) {
-      const ratio = (activity.moving_seconds / 60) / w.duration_minutes
-      if (ratio < 0.7) verdict = 'más suave'
-      else if (ratio > 1.15) verdict = 'más duro'
-      else verdict = 'como lo prescripto'
-    } else {
-      verdict = 'hecho'
-    }
+    const verdict = compareSession({
+      workoutType: w.workout_type,
+      title: w.title,
+      durationMinutes: w.duration_minutes,
+      targetZone: w.target_zone,
+      targetPower: w.target_power,
+      targetHr: w.target_hr,
+      hasActivity: Boolean(activity),
+      movingSeconds: activity?.moving_seconds,
+      avgPower: activity?.avg_power,
+      normalizedPower: activity?.normalized_power,
+      intensityFactor: activity?.intensity_factor,
+      avgHr: activity?.avg_hr,
+    }).label
 
     out.push(`- ${w.scheduled_date} · ${prescribed} → ${actual} · ${verdict}`)
   }

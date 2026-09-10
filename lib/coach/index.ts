@@ -3,6 +3,8 @@ import { geminiEnv } from '@/lib/env'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { applyCoachPlanIfRequested } from './apply-plan'
 import { buildAthleteContext } from './context'
+import { COACH_DOCTRINE } from './doctrine'
+import { composeCoachSystemPrompt } from './system-prompt'
 
 import 'server-only'
 
@@ -40,6 +42,7 @@ Reglas que no podés romper:
 19. Los ciclos duran 4 semanas (3 de carga + 1 de descarga). Antes de armar una semana nueva, mirá "Ciclos (12 semanas)": si van 3 semanas de carga seguidas, la próxima tiene que ser de descanso. No esperes a que el TSB se hunda para bajar. Si la sugerencia del contexto y el readiness chocan, priorizá el readiness (no cargues si está < 40).
 20. Toda sesión de bici incluye entrada en calor y vuelta a la calma DENTRO del tiempo total (no se suman extra). Típico: 10–15 min de entrada en Z1–Z2 y 8–10 min de vuelta en Z1. duration_minutes es el total (entrada + trabajo + vuelta). Cuando prescribas, describí los tres bloques. Nunca des solo el trabajo de calidad como si fuera toda la sesión.
 21. El contexto puede traer "Vueltas (laps) de las últimas actividades": cada vuelta es un bloque real que el atleta cortó con el botón lap. Cuando evalúes una sesión con intervalos, comparala bloque por bloque (potencia, pulso, cadencia, duración) en vez de mirar el promedio de toda la salida. Si la sesión tenía intervalos y no hay vueltas, decilo y pedile que use el botón lap la próxima vez.
+22. "Prescripto vs ejecutado" y, en las devoluciones, "Comparación (calculada por la app)" traen un veredicto hecho por la app (duración, potencia, pulso, intervalos). Usalo. No lo suavices ni lo contradigas.
 `
 
 async function loadHistory(userId: string): Promise<ChatTurn[]> {
@@ -81,12 +84,12 @@ export async function askCoach(
 
   const [context, history] = await Promise.all([buildAthleteContext(userId), loadHistory(userId)])
 
-  const systemInstruction = [
-    RULES,
-    channel === 'telegram' ? '\nEstás respondiendo por Telegram: sin markdown, texto plano y breve.' : '',
-    '\n# Contexto del atleta\n',
-    context,
-  ].join('\n')
+  const systemInstruction = composeCoachSystemPrompt({
+    rules: RULES,
+    doctrine: COACH_DOCTRINE,
+    athleteContext: context,
+    channel,
+  })
 
   const env = geminiEnv()
   const models = env ? await chooseModels(env.GEMINI_API_KEY, env.GEMINI_MODEL, trimmed) : undefined
