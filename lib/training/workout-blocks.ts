@@ -21,7 +21,12 @@ const DEFAULT_STRENGTH: StrengthExercise[] = [
   { exercise: 'Vuelta: movilidad suave', sets: '1', reps: '5 min', note: 'Cierre, sin fatiga' },
 ]
 
-import { parseCompactIntervals, parseRestMinutes } from './session-prescription'
+import {
+  expandIntervalShorthand,
+  looksGenericEnduranceText,
+  parseCompactIntervals,
+  parseRestMinutes,
+} from './session-prescription'
 
 const HARD_KIND = /tempo|threshold|vo2|umbral/i
 
@@ -48,8 +53,64 @@ export function warmupCooldownMinutes(
   return { warmup, cooldown }
 }
 
+const WARMUP_SENTENCE =
+  /\d+\s*min(?:utos)?\s+de\s+entrada(?:\s+en\s+calor)?(?:\s+progresiva)?(?:\s+en\s+Z[1-5](?:\s*[–-]\s*Z[1-5])?)?/i
+const COOLDOWN_SENTENCE =
+  /\d+\s*min(?:utos)?\s+de\s+vuelta(?:\s+a\s+la\s+calma)?(?:\s+en\s+Z[1-5])?/i
+const TOTAL_NOTE = /el tiempo total\s*\([^)]+\)\s+incluye entrada y vuelta\.?/i
+
+function splitSentences(text: string): string[] {
+  return text
+    .split(/(?<=[.!?])\s+/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+}
+
+/** Drops warmup / cooldown / total-time sentences so we can wrap them once. */
+export function stripWarmupCooldown(text: string): string {
+  return splitSentences(text)
+    .filter((s) => !WARMUP_SENTENCE.test(s) && !COOLDOWN_SENTENCE.test(s) && !TOTAL_NOTE.test(s))
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .replace(/^[.\s]+|[.\s]+$/g, '')
+    .trim()
+}
+
+/**
+ * If the coach already wrote entrada/vuelta and we wrapped again, keep the
+ * inner pair: last leading warmup, first trailing cooldown.
+ */
+export function dedupeWarmupCooldownProse(text: string | null | undefined): string {
+  const raw = (text ?? '').replace(/\s+/g, ' ').trim()
+  if (!raw) return ''
+
+  const sentences = splitSentences(raw)
+  const isWarmup = (s: string) => WARMUP_SENTENCE.test(s)
+  const isCooldown = (s: string) => COOLDOWN_SENTENCE.test(s)
+  const isTotal = (s: string) => TOTAL_NOTE.test(s)
+
+  let start = 0
+  while (start < sentences.length && isWarmup(sentences[start])) start++
+  let end = sentences.length
+  while (end > start && (isCooldown(sentences[end - 1]) || isTotal(sentences[end - 1]))) end--
+
+  const leading = sentences.slice(0, start)
+  const middle = sentences.slice(start, end)
+  const trailing = sentences.slice(end)
+  const warmup = leading.length ? [leading[leading.length - 1]] : []
+  const cooldown = trailing.find(isCooldown)
+  const total = trailing.find(isTotal)
+
+  return [...warmup, ...middle, ...(cooldown ? [cooldown] : []), ...(total ? [total] : [])]
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 /**
  * Full bike prescription: warmup + main work + cooldown, totaling `totalMinutes`.
+ * `mainWork` may already mention entrada/vuelta; those sentences are stripped
+ * so they are not written twice.
  */
 export function formatBikeDescription(input: {
   kind: string
@@ -62,8 +123,42 @@ export function formatBikeDescription(input: {
   const entrada = hard
     ? `${warmup} min de entrada en calor progresiva en Z1–Z2`
     : `${warmup} min de entrada en calor en Z1–Z2`
-  const main = input.mainWork.replace(/\.\s*$/, '')
-  return `${entrada}. ${main}. ${cooldown} min de vuelta a la calma en Z1. El tiempo total (${input.totalMinutes} min) incluye entrada y vuelta.`
+  const main = stripWarmupCooldown(input.mainWork).replace(/\.\s*$/, '')
+  const body = main ? `${entrada}. ${main}.` : `${entrada}.`
+  return `${body} ${cooldown} min de vuelta a la calma en Z1. El tiempo total (${input.totalMinutes} min) incluye entrada y vuelta.`
+}
+
+/** Turns a coach JSON description into the prose we persist on the workout. */
+export function buildBikeSessionDescription(input: {
+  kind: string
+  minutes: number
+  zone: string
+  title?: string | null
+  rawDescription?: string | null
+  templateMainWork: string
+}): string {
+  const rawDescription = input.rawDescription?.trim() ?? ''
+  const fromTitle = expandIntervalShorthand(input.title, rawDescription)
+  const structured =
+    Boolean(rawDescription) &&
+    /entrada|vuelta a la calma/i.test(rawDescription) &&
+    !looksGenericEnduranceText(rawDescription)
+
+  if (structured) return dedupeWarmupCooldownProse(rawDescription)
+
+  const mainWork =
+    fromTitle && (!rawDescription || looksGenericEnduranceText(rawDescription))
+      ? fromTitle
+      : rawDescription && !looksGenericEnduranceText(rawDescription)
+        ? stripWarmupCooldown(rawDescription)
+        : fromTitle || input.templateMainWork
+
+  return formatBikeDescription({
+    kind: input.kind,
+    totalMinutes: input.minutes,
+    zone: input.zone,
+    mainWork,
+  })
 }
 
 /** Default strength table when the plan only has a generic "fuerza/core" note. */

@@ -13,7 +13,7 @@ import {
   resolveSessionKind,
   resolveSessionZone,
 } from '@/lib/training/session-prescription'
-import { formatBikeDescription } from '@/lib/training/workout-blocks'
+import { dedupeWarmupCooldownProse, formatBikeDescription } from '@/lib/training/workout-blocks'
 
 export type PlanSession = {
   id?: string
@@ -93,7 +93,7 @@ export function SessionCard({
           zone,
           mainWork: fromTitle,
         })
-      : session.description
+      : dedupeWarmupCooldownProse(session.description)
   // Blocks read the same text the athlete sees, so table and prose can't disagree.
   const bikeBlocks = strength
     ? []

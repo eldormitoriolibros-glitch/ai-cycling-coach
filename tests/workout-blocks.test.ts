@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { parseWorkoutBlocks, strengthExercises, formatBikeDescription, blocksForBikeSession } from '@/lib/training/workout-blocks'
+import {
+  parseWorkoutBlocks,
+  strengthExercises,
+  formatBikeDescription,
+  blocksForBikeSession,
+  buildBikeSessionDescription,
+  dedupeWarmupCooldownProse,
+} from '@/lib/training/workout-blocks'
 
 describe('parseWorkoutBlocks', () => {
   it('parses a threshold session into warmup, intervals, recoveries and cooldown', () => {
@@ -57,5 +64,53 @@ describe('parseWorkoutBlocks', () => {
     expect(blocks.map((b) => b.label)).toContain('Intervalos')
     expect(blocks.find((b) => b.label === 'Intervalos')).toMatchObject({ repeats: 3, minutes: 10, intensity: 'Z4' })
     expect(blocks.some((b) => b.label === 'Bloque principal' && b.intensity === 'Z2')).toBe(false)
+  })
+})
+
+describe('formatBikeDescription', () => {
+  it('does not wrap a main block that already has entrada and vuelta', () => {
+    const text = formatBikeDescription({
+      kind: 'threshold',
+      totalMinutes: 90,
+      zone: 'Z4',
+      mainWork:
+        '20 minutos de entrada en calor en Z1–Z2. 3 bloques de 10 min en Z4 con 5 min suaves entre cada uno. 30 min de vuelta a la calma en Z1.',
+    })
+    expect(text.match(/entrada en calor/gi)).toHaveLength(1)
+    expect(text.match(/vuelta a la calma/gi)).toHaveLength(1)
+    expect(text).toMatch(/3 bloques de 10 min/)
+  })
+})
+
+describe('dedupeWarmupCooldownProse', () => {
+  it('keeps the coach entrada/vuelta when the app wrapped them again', () => {
+    const text = dedupeWarmupCooldownProse(
+      '15 min de entrada en calor progresiva en Z1–Z2. 20 minutos de entrada en calor en Z1–Z2. 3 bloques de 10 min alternando Over y Under. 30 min de vuelta a la calma en Z1. 10 min de vuelta a la calma en Z1. El tiempo total (90 min) incluye entrada y vuelta.'
+    )
+    expect(text).toMatch(/20 minutos de entrada/)
+    expect(text).toMatch(/30 min de vuelta/)
+    expect(text).not.toMatch(/15 min de entrada/)
+    expect(text).not.toMatch(/10 min de vuelta/)
+    expect(text.match(/entrada en calor/gi)).toHaveLength(1)
+    expect(text.match(/vuelta a la calma/gi)).toHaveLength(1)
+  })
+})
+
+describe('buildBikeSessionDescription', () => {
+  it('keeps a complete coach prescription even if the title has 3x10m', () => {
+    const text = buildBikeSessionDescription({
+      kind: 'threshold',
+      minutes: 90,
+      zone: 'Z4',
+      title: 'Bici Over-Unders 3×10m',
+      rawDescription:
+        '20 minutos de entrada en calor en Z1–Z2. 3 bloques de 10 min alternando 1 min Over (Z4) × 1 min Under (Z3) con 5 minutos de recuperación en Z1 entre series. 30 min de vuelta a la calma en Z1.',
+      templateMainWork: 'Ritmo constante en Z2',
+    })
+    expect(text).toMatch(/20 minutos de entrada/)
+    expect(text).toMatch(/30 min de vuelta/)
+    expect(text.match(/entrada/gi)).toHaveLength(1)
+    expect(text.match(/vuelta a la calma/gi)).toHaveLength(1)
+    expect(text).not.toMatch(/15 min de entrada/)
   })
 })

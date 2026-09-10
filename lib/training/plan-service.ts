@@ -11,8 +11,8 @@ import {
 } from './planner2'
 import { computeReadiness } from '@/lib/training/readiness'
 import { splitCombinedSession } from './split-sessions'
-import { expandIntervalShorthand, looksGenericEnduranceText, resolveSessionKind, resolveSessionZone } from './session-prescription'
-import { formatBikeDescription } from './workout-blocks'
+import { resolveSessionKind, resolveSessionZone } from './session-prescription'
+import { buildBikeSessionDescription } from './workout-blocks'
 
 import 'server-only'
 
@@ -296,26 +296,17 @@ export async function coachPlanToDraft(userId: string, plan: CoachPlanInput): Pr
     const power = kind === 'strength' || !ftp || !template.powerFactor ? null : Math.round(ftp * template.powerFactor)
     const hr = kind === 'strength' || !maxHr || !template.hrFactor ? null : Math.round(maxHr * template.hrFactor)
     const rawDescription = w.description?.trim()
-    const fromTitle = expandIntervalShorthand(w.title, rawDescription)
-    const mainWork =
-      fromTitle && (!rawDescription || looksGenericEnduranceText(rawDescription))
-        ? fromTitle
-        : rawDescription && !looksGenericEnduranceText(rawDescription)
-          ? rawDescription
-          : fromTitle || template.mainWork
-    const keepRaw = Boolean(rawDescription && /entrada|vuelta a la calma/i.test(rawDescription) && !looksGenericEnduranceText(rawDescription) && !fromTitle)
     const description =
       kind === 'strength'
         ? (rawDescription || `${template.mainWork}.`).slice(0, 1000)
-        : (keepRaw && rawDescription
-            ? rawDescription
-            : formatBikeDescription({
-                kind,
-                totalMinutes: minutes,
-                zone,
-                mainWork,
-              })
-          ).slice(0, 1000)
+        : buildBikeSessionDescription({
+            kind,
+            minutes,
+            zone,
+            title: w.title,
+            rawDescription,
+            templateMainWork: template.mainWork,
+          }).slice(0, 1000)
 
     return {
       scheduled_date: w.date,
