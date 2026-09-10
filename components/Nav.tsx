@@ -10,7 +10,6 @@ const LINKS = [
   { href: '/plan', label: 'Plan' },
   { href: '/calendar', label: 'Calendario' },
   { href: '/power', label: 'Potencia' },
-  { href: '/recovery', label: 'Recuperación' },
   { href: '/profile', label: 'Perfil' },
   { href: '/availability', label: 'Disponibilidad' },
   { href: '/settings', label: 'Conexiones' },

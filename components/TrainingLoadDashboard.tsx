@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { Card } from '@/components/ui'
+import { CollapsibleSection } from '@/components/dashboard/CollapsibleSection'
 import {
   BarChart, Bar, LineChart, Line, ComposedChart,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend,
@@ -33,6 +34,9 @@ const RANGE_OPTIONS = [
   { days: 42, label: '6 sem' },
   { days: 90, label: '3 meses' },
   { days: 180, label: '6 meses' },
+  { days: 365, label: '1 año' },
+  { days: 730, label: '2 años' },
+  { days: 0, label: 'Todo' },
 ] as const
 
 const RANGE_KEY = 'trainer:load-range-days'
@@ -52,15 +56,19 @@ function rangeLabel(days: number): string {
 }
 
 export function TrainingLoadDashboard({
-  days: initialDays = 42,
+  days: initialDays = 28,
   compact = false,
   showStats = true,
   allowRangeSelect = true,
+  collapsible = false,
+  featured = 'daily',
 }: {
   days?: number
   compact?: boolean
   showStats?: boolean
   allowRangeSelect?: boolean
+  collapsible?: boolean
+  featured?: 'daily' | 'rolling' | 'fitness'
 }) {
   const [days, setDays] = useState(initialDays)
   const [data, setData] = useState<LoadData | null>(null)
@@ -118,30 +126,17 @@ export function TrainingLoadDashboard({
     </div>
   ) : null
 
-  if (loading) {
-    return (
-      <div>
-        {rangePicker}
-        {compact ? (
-          <p className="text-sm text-muted animate-pulse">Cargando gráficos…</p>
-        ) : (
-          <Card>
-            <p className="text-sm text-muted animate-pulse">Cargando datos de carga...</p>
-          </Card>
-        )}
-      </div>
-    )
-  }
-  if (!data || !data.loadTimeline.length) {
-    return (
-      <div>
-        {rangePicker}
-        <p className="text-sm text-muted">Sin datos de carga en este rango.</p>
-      </div>
-    )
-  }
+  const pending = compact ? (
+    <p className="text-sm text-muted animate-pulse">Cargando gráficos…</p>
+  ) : (
+    <Card>
+      <p className="text-sm text-muted animate-pulse">Cargando datos de carga...</p>
+    </Card>
+  )
+  const empty = <p className="text-sm text-muted">Sin datos de carga en este rango.</p>
+  const ready = Boolean(data && data.loadTimeline.length)
 
-  const timeline = data.loadTimeline
+  const timeline = data?.loadTimeline ?? []
   const lastPoint = timeline[timeline.length - 1]
   const chartHeight = compact ? 120 : 200
   const tickEvery = Math.max(1, Math.floor(timeline.length / (compact ? 4 : 7)))
@@ -179,99 +174,117 @@ export function TrainingLoadDashboard({
     ? 'rounded-lg border border-surface p-3'
     : 'rounded-lg border border-surface p-0 border-0'
 
+  const dailyChart = compact ? (
+    <>
+      <h3 className="mb-1 text-xs font-semibold">Carga diaria</h3>
+      <p className="mb-2 text-[10px] text-muted">{rangeLabel(days)}</p>
+      <DailyLoadChart
+        data={dailyData}
+        dailyActivities={data?.dailyActivities ?? {}}
+        height={chartHeight}
+        tickEvery={tickEvery}
+        compact
+      />
+    </>
+  ) : (
+    <Card>
+      <h3 className="mb-1 font-semibold">Carga de ejercicio diaria</h3>
+      <p className="mb-3 text-xs text-muted">{rangeLabel(days)}</p>
+      <DailyLoadChart
+        data={dailyData}
+        dailyActivities={data?.dailyActivities ?? {}}
+        height={chartHeight}
+        tickEvery={tickEvery}
+      />
+    </Card>
+  )
+
+  const rollingChart = compact ? (
+    <>
+      <h3 className="mb-1 text-xs font-semibold">Carga 7 días</h3>
+      <p className="mb-2 text-[10px] text-muted">
+        Óptimo {optimalLow}–{optimalHigh}
+      </p>
+      <RollingLoadChart
+        data={rollingData}
+        optimalLow={optimalLow}
+        optimalHigh={optimalHigh}
+        height={chartHeight}
+        tickEvery={tickEvery}
+        compact
+      />
+    </>
+  ) : (
+    <Card>
+      <div className="mb-3 flex items-baseline gap-3">
+        <h3 className="font-semibold">Carga de entreno (7 días)</h3>
+        <span className="text-xs text-muted">
+          Rango óptimo: {optimalLow}–{optimalHigh}
+        </span>
+      </div>
+      <RollingLoadChart
+        data={rollingData}
+        optimalLow={optimalLow}
+        optimalHigh={optimalHigh}
+        height={220}
+        tickEvery={tickEvery}
+      />
+    </Card>
+  )
+
+  const fitnessChart = compact ? (
+    <>
+      <h3 className="mb-1 text-xs font-semibold">Fitness vs Fatiga</h3>
+      <p className="mb-2 text-[10px] text-muted">CTL · ATL · TSB</p>
+      <FitnessFatigueChart data={fitnessData} height={chartHeight} tickEvery={tickEvery} compact />
+    </>
+  ) : (
+    <Card>
+      <h3 className="mb-1 font-semibold">Fitness vs Fatiga</h3>
+      <p className="mb-3 text-xs text-muted">
+        CTL · ATL · TSB — {timeline.length} días
+      </p>
+      <FitnessFatigueChart data={fitnessData} height={250} tickEvery={tickEvery} />
+      {showStats && lastPoint && (
+        <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <MiniStat label="Fitness (CTL)" value={lastPoint.chronicLoad} color="text-blue-600" />
+          <MiniStat label="Fatiga (ATL)" value={lastPoint.acuteLoad} color="text-red-500" />
+          <MiniStat label="Forma (TSB)" value={lastPoint.form} color="text-green-600" />
+          <MiniStat label="Rampa 7d" value={lastPoint.rampRate} color="text-slate-600" />
+        </div>
+      )}
+    </Card>
+  )
+
+  const featuredChart =
+    featured === 'rolling' ? rollingChart : featured === 'fitness' ? fitnessChart : dailyChart
+
+  const allCharts = (
+    <div className={compact ? 'grid gap-3 lg:grid-cols-3' : 'space-y-4'}>
+      <div className={compact ? chartShell : undefined}>{dailyChart}</div>
+      <div className={compact ? chartShell : undefined}>{rollingChart}</div>
+      <div className={compact ? chartShell : undefined}>{fitnessChart}</div>
+    </div>
+  )
+
+  const summary = !ready ? (loading ? pending : empty) : <div className={chartShell}>{featuredChart}</div>
+  const body = !ready ? (loading ? pending : empty) : allCharts
+
+  if (collapsible) {
+    return (
+      <CollapsibleSection title="Gráficos de carga" summaryInteractive summary={summary}>
+        <div>
+          {rangePicker}
+          {body}
+        </div>
+      </CollapsibleSection>
+    )
+  }
+
   return (
     <div>
       {rangePicker}
-      <div className={compact ? 'grid gap-3 lg:grid-cols-3' : 'space-y-4'}>
-        <div className={compact ? chartShell : undefined}>
-          {!compact && (
-            <Card>
-              <h3 className="mb-1 font-semibold">Carga de ejercicio diaria</h3>
-              <p className="mb-3 text-xs text-muted">{rangeLabel(days)}</p>
-              <DailyLoadChart
-                data={dailyData}
-                dailyActivities={data.dailyActivities}
-                height={chartHeight}
-                tickEvery={tickEvery}
-              />
-            </Card>
-          )}
-          {compact && (
-            <>
-              <h3 className="mb-1 text-xs font-semibold">Carga diaria</h3>
-              <p className="mb-2 text-[10px] text-muted">{rangeLabel(days)}</p>
-              <DailyLoadChart
-                data={dailyData}
-                dailyActivities={data.dailyActivities}
-                height={chartHeight}
-                tickEvery={tickEvery}
-                compact
-              />
-            </>
-          )}
-        </div>
-
-        <div className={compact ? chartShell : undefined}>
-          {!compact ? (
-            <Card>
-              <div className="mb-3 flex items-baseline gap-3">
-                <h3 className="font-semibold">Carga de entreno (7 días)</h3>
-                <span className="text-xs text-muted">
-                  Rango óptimo: {optimalLow}–{optimalHigh}
-                </span>
-              </div>
-              <RollingLoadChart
-                data={rollingData}
-                optimalLow={optimalLow}
-                optimalHigh={optimalHigh}
-                height={220}
-                tickEvery={tickEvery}
-              />
-            </Card>
-          ) : (
-            <>
-              <h3 className="mb-1 text-xs font-semibold">Carga 7 días</h3>
-              <p className="mb-2 text-[10px] text-muted">
-                Óptimo {optimalLow}–{optimalHigh}
-              </p>
-              <RollingLoadChart
-                data={rollingData}
-                optimalLow={optimalLow}
-                optimalHigh={optimalHigh}
-                height={chartHeight}
-                tickEvery={tickEvery}
-                compact
-              />
-            </>
-          )}
-        </div>
-
-        <div className={compact ? chartShell : undefined}>
-          {!compact ? (
-            <Card>
-              <h3 className="mb-1 font-semibold">Fitness vs Fatiga</h3>
-              <p className="mb-3 text-xs text-muted">
-                CTL · ATL · TSB — {timeline.length} días
-              </p>
-              <FitnessFatigueChart data={fitnessData} height={250} tickEvery={tickEvery} />
-              {showStats && lastPoint && (
-                <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-                  <MiniStat label="Fitness (CTL)" value={lastPoint.chronicLoad} color="text-blue-600" />
-                  <MiniStat label="Fatiga (ATL)" value={lastPoint.acuteLoad} color="text-red-500" />
-                  <MiniStat label="Forma (TSB)" value={lastPoint.form} color="text-green-600" />
-                  <MiniStat label="Rampa 7d" value={lastPoint.rampRate} color="text-slate-600" />
-                </div>
-              )}
-            </Card>
-          ) : (
-            <>
-              <h3 className="mb-1 text-xs font-semibold">Fitness vs Fatiga</h3>
-              <p className="mb-2 text-[10px] text-muted">CTL · ATL · TSB</p>
-              <FitnessFatigueChart data={fitnessData} height={chartHeight} tickEvery={tickEvery} compact />
-            </>
-          )}
-        </div>
-      </div>
+      {body}
     </div>
   )
 }

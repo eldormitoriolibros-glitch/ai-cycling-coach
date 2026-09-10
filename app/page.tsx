@@ -14,9 +14,12 @@ import { WeeklyCalendarStrip } from '@/components/calendar/WeeklyCalendarStrip'
 import { CollapsibleSection } from '@/components/dashboard/CollapsibleSection'
 import { FormStatusChips, FormStatusMeters } from '@/components/dashboard/FormStatusMeters'
 import { ReadinessMeter } from '@/components/dashboard/ReadinessMeter'
+import { TodayPlan } from '@/components/dashboard/TodayPlan'
 import { TrainingLoadDashboard } from '@/components/TrainingLoadDashboard'
 import { assessFormStatus } from '@/lib/training/form-status'
+import { hasDeviceRecovery } from '@/lib/training/readiness'
 import { readinessFrom } from '@/lib/training/readiness-input'
+import { localDateKey } from '@/lib/training/dates'
 
 export const dynamic = 'force-dynamic'
 
@@ -25,7 +28,7 @@ const SECTIONS = [
   { href: '/plan', title: 'Plan', description: 'Proponé y aprobá la semana de entrenamiento.', icon: ListChecks },
   { href: '/calendar', title: 'Calendario', description: 'Vista mensual, semestral o anual de actividades.', icon: CalendarDays },
   { href: '/power', title: 'Potencia', description: 'Curva de potencia, FTP estimado y zonas.', icon: Zap },
-  { href: '/recovery', title: 'Recuperación', description: 'Sueño, FC en reposo, HRV y sensaciones.', icon: HeartPulse },
+  { href: '/recovery', title: 'Recuperación', description: 'Opcional hasta que un reloj mande sueño y HRV.', icon: HeartPulse },
   { href: '/profile', title: 'Perfil ciclista', description: 'Datos personales, FTP y frecuencias cardíacas.', icon: User },
   { href: '/availability', title: 'Disponibilidad', description: 'Horas por día para bici y fuerza.', icon: Clock },
   { href: '/settings', title: 'Conexiones', description: 'Conectá Garmin y Telegram.', icon: Plug },
@@ -39,8 +42,15 @@ export default async function HomePage() {
 
   const historyFrom = new Date(Date.now() - 90 * 86400_000).toISOString().slice(0, 10)
 
-  const [{ data: profile }, { data: loadHistory }, { data: recovery }, { data: sleep }] = await Promise.all([
-    supabase.from('users').select('name, timezone').eq('id', user!.id).maybeSingle(),
+  const { data: profile } = await supabase
+    .from('users')
+    .select('name, timezone')
+    .eq('id', user!.id)
+    .maybeSingle()
+
+  const today = localDateKey(new Date(), profile?.timezone || 'UTC')
+
+  const [{ data: loadHistory }, { data: recovery }, { data: sleep }, { data: todayWorkouts }] = await Promise.all([
     supabase
       .from('training_load')
       .select('date, chronic_load, acute_load, form, ramp_rate')
@@ -59,6 +69,14 @@ export default async function HomePage() {
       .eq('user_id', user!.id)
       .order('date', { ascending: false })
       .limit(7),
+    supabase
+      .from('workouts')
+      .select(
+        'id, scheduled_date, workout_type, title, description, duration_minutes, target_zone, target_power, target_hr, purpose, rationale, status, completed_activity_id'
+      )
+      .eq('user_id', user!.id)
+      .eq('scheduled_date', today)
+      .order('workout_type', { ascending: true }),
   ])
 
   const load = loadHistory?.length ? loadHistory[loadHistory.length - 1] : null
@@ -109,7 +127,6 @@ export default async function HomePage() {
       {status && (
         <CollapsibleSection
           title="Estado de forma"
-          defaultOpen
           summary={<FormStatusChips metrics={[status.form, status.fatigue, status.fitness, status.ramp]} />}
         >
           <FormStatusMeters
@@ -118,20 +135,25 @@ export default async function HomePage() {
             fitness={status.fitness}
             ramp={status.ramp}
           />
-          <div className="mt-4">
-            <ReadinessMeter readiness={readiness} />
-          </div>
+          {hasDeviceRecovery(readiness) && (
+            <div className="mt-4">
+              <ReadinessMeter readiness={readiness} />
+            </div>
+          )}
           <p className="mt-3 text-xs text-muted">
             Forma y rampa usan rangos típicos de ciclismo. Fitness se compara con tu CTL de los últimos 90 días;
-            fatiga se mide como ATL/CTL. Los cuatro salen solo de tus actividades; el readiness es el único que
-            suma sueño y sensaciones. Valores calculados por esta app, no por Strava ni Garmin.
+            fatiga se mide como ATL/CTL. Salen solo de tus salidas (potencia, pulso o duración).
+            {hasDeviceRecovery(readiness)
+              ? ' El readiness suma sueño y recuperación del reloj.'
+              : ' El readiness aparece cuando un reloj mande sueño o HRV; no hace falta cargarlo a mano.'}{' '}
+            Valores calculados por esta app, no por Strava ni Garmin.
           </p>
         </CollapsibleSection>
       )}
 
-      <CollapsibleSection title="Gráficos de carga" defaultOpen>
-        <TrainingLoadDashboard days={42} compact showStats={false} />
-      </CollapsibleSection>
+      <TodayPlan sessions={todayWorkouts ?? []} today={today} />
+
+      <TrainingLoadDashboard days={28} compact showStats={false} collapsible featured="daily" />
 
       <CollapsibleSection title="Accesos rápidos">
         <div className="grid gap-3 sm:grid-cols-2">

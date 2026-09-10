@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { Suspense, useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { Card } from '@/components/ui'
 import { CalendarGrid } from '@/components/calendar/CalendarGrid'
@@ -27,11 +28,29 @@ function toDateParam(date: Date): string {
   return `${y}-${m}-${d}`
 }
 
+function monthFromDateParam(raw: string | null): { year: number; month: number } | null {
+  if (!raw || !/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null
+  const year = Number(raw.slice(0, 4))
+  const month = Number(raw.slice(5, 7)) - 1
+  if (!Number.isFinite(year) || month < 0 || month > 11) return null
+  return { year, month }
+}
+
 export default function CalendarPage() {
+  return (
+    <Suspense fallback={<p className="text-sm text-muted">Cargando calendario…</p>}>
+      <CalendarView />
+    </Suspense>
+  )
+}
+
+function CalendarView() {
   const now = new Date()
+  const searchParams = useSearchParams()
+  const focus = monthFromDateParam(searchParams.get('date'))
   const [viewMode, setViewMode] = useState<CalendarViewMode>('month')
-  const [year, setYear] = useState(now.getFullYear())
-  const [month, setMonth] = useState(now.getMonth())
+  const [year, setYear] = useState(() => focus?.year ?? now.getFullYear())
+  const [month, setMonth] = useState(() => focus?.month ?? now.getMonth())
   const [activities, setActivities] = useState<CalendarActivity[]>([])
   const [loading, setLoading] = useState(true)
 

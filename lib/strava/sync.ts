@@ -52,7 +52,7 @@ async function loadThresholds(userId: string): Promise<AthleteThresholds> {
 export async function syncActivities(
   userId: string,
   trigger: SyncTrigger,
-  options: { full?: boolean } = {}
+  options: { full?: boolean; afterDays?: number; skipStreams?: boolean } = {}
 ): Promise<SyncResult> {
   const supabase = createAdminClient()
   const startedAt = new Date().toISOString()
@@ -71,10 +71,11 @@ export async function syncActivities(
     ])
 
     const lastSyncAt = connection.data?.last_sync_at
+    const windowDays = options.afterDays ?? FIRST_SYNC_DAYS
     const after =
       lastSyncAt && !options.full
         ? Math.floor(new Date(lastSyncAt).getTime() / 1000) - OVERLAP_SECONDS
-        : Math.floor(Date.now() / 1000) - FIRST_SYNC_DAYS * 86400
+        : Math.floor(Date.now() / 1000) - windowDays * 86400
 
     for (let page = 1; page <= MAX_PAGES; page++) {
       const batch = await listActivities(accessToken, { after, page, perPage: PER_PAGE })
@@ -98,20 +99,21 @@ export async function syncActivities(
       .update({ last_sync_at: new Date().toISOString(), last_sync_error: null, connection_status: 'connected' })
       .eq('user_id', userId)
 
-    const backfill = await backfillPowerCurves(
-      userId,
-      accessToken,
-      trigger === 'manual' ? STREAM_LIMIT_MANUAL : STREAM_LIMIT_BACKGROUND
-    )
-    streamsProcessed = backfill.processed
-    streamsRemaining = backfill.remaining
+    if (!options.skipStreams) {
+      const backfill = await backfillPowerCurves(
+        userId,
+        accessToken,
+        trigger === 'manual' ? STREAM_LIMIT_MANUAL : STREAM_LIMIT_BACKGROUND
+      )
+      streamsProcessed = backfill.processed
+      streamsRemaining = backfill.remaining
 
-    // Download all time-series data for charting (HR, power, cadence, speed, elevation)
-    await backfillActivitySamples(
-      userId,
-      accessToken,
-      trigger === 'manual' ? STREAM_LIMIT_MANUAL : STREAM_LIMIT_BACKGROUND
-    )
+      await backfillActivitySamples(
+        userId,
+        accessToken,
+        trigger === 'manual' ? STREAM_LIMIT_MANUAL : STREAM_LIMIT_BACKGROUND
+      )
+    }
 
     // A ride imported from CSV may now exist on Strava as well.
     await removeDuplicateManualActivities(userId)

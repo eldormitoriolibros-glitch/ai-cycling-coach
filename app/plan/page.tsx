@@ -1,6 +1,6 @@
 import { PlanBoard } from '@/components/PlanBoard'
 import { createClient } from '@/lib/supabase/server'
-import { addDays, localDateKey } from '@/lib/training/dates'
+import { addDays, endOfWeek, localDateKey, startOfWeek } from '@/lib/training/dates'
 import { looksStrength } from '@/lib/training/split-sessions'
 
 export const dynamic = 'force-dynamic'
@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic'
 export default async function PlanPage({
   searchParams,
 }: {
-  searchParams?: { date?: string }
+  searchParams?: { date?: string; session?: string }
 }) {
   const supabase = createClient()
   const {
@@ -26,11 +26,13 @@ export default async function PlanPage({
 
   const { data: profile } = await supabase.from('users').select('timezone').eq('id', user.id).maybeSingle()
   const today = localDateKey(new Date(), profile?.timezone || 'UTC')
-  const historyFrom = addDays(today, -56)
-  const horizon = addDays(today, 35)
-  // Deep link from an activity: open the week that holds its session.
   const requested = searchParams?.date
   const focusDate = requested && /^\d{4}-\d{2}-\d{2}$/.test(requested) ? requested : undefined
+  const focusSessionId =
+    searchParams?.session && /^[0-9a-f-]{36}$/i.test(searchParams.session) ? searchParams.session : undefined
+  // Include the focused week even if it sits outside the usual ±window.
+  const historyFrom = focusDate && focusDate < addDays(today, -56) ? startOfWeek(focusDate) : addDays(today, -56)
+  const horizon = focusDate && focusDate > addDays(today, 35) ? endOfWeek(focusDate) : addDays(today, 35)
 
   const { data: workouts } = await supabase
     .from('workouts')
@@ -75,7 +77,12 @@ export default async function PlanPage({
         Para cambiar algo, pedíselo al entrenador por chat o Telegram y confirmá el cambio.
       </p>
 
-      <PlanBoard workouts={sessions} today={today} focusDate={focusDate} />
+      <PlanBoard
+        workouts={sessions}
+        today={today}
+        focusDate={focusDate}
+        focusSessionId={focusSessionId}
+      />
     </div>
   )
 }

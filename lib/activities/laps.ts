@@ -71,11 +71,86 @@ function fmtDuration(seconds: number | null): string {
   return `${m}:${String(s).padStart(2, '0')}`
 }
 
+export type LapSample = {
+  offset_seconds: number
+  power: number | null
+  heart_rate: number | null
+}
+
+export type LapShape = {
+  firstHalfPower: number | null
+  secondHalfPower: number | null
+  fadePct: number | null
+  firstHalfHr: number | null
+  secondHalfHr: number | null
+  hrDrift: number | null
+}
+
+function mean(values: number[]): number | null {
+  return values.length ? values.reduce((a, b) => a + b, 0) / values.length : null
+}
+
+function inWindow(samples: LapSample[], start: number, end: number, key: 'power' | 'heart_rate'): number[] {
+  return samples
+    .filter((s) => s.offset_seconds >= start && s.offset_seconds < end)
+    .map((s) => s[key])
+    .filter((v): v is number => v != null && Number.isFinite(v))
+}
+
+/**
+ * How the block changed from first half to second half. Needs ~40s of samples
+ * — shorter than that and the split is noise.
+ */
+export function analyzeLapShape(lap: ActivityLapRow, samples: LapSample[]): LapShape | null {
+  const start = lap.start_offset_seconds ?? 0
+  const duration = lap.moving_seconds ?? lap.elapsed_seconds ?? 0
+  if (duration < 40 || samples.length === 0) return null
+
+  const mid = start + duration / 2
+  const end = start + duration
+  const firstHalfPower = mean(inWindow(samples, start, mid, 'power'))
+  const secondHalfPower = mean(inWindow(samples, mid, end, 'power'))
+  const firstHalfHr = mean(inWindow(samples, start, mid, 'heart_rate'))
+  const secondHalfHr = mean(inWindow(samples, mid, end, 'heart_rate'))
+
+  const fadePct =
+    firstHalfPower && secondHalfPower
+      ? Math.round(((secondHalfPower - firstHalfPower) / firstHalfPower) * 100)
+      : null
+  const hrDrift =
+    firstHalfHr != null && secondHalfHr != null ? Math.round(secondHalfHr - firstHalfHr) : null
+
+  if (fadePct == null && hrDrift == null) return null
+  return { firstHalfPower, secondHalfPower, fadePct, firstHalfHr, secondHalfHr, hrDrift }
+}
+
+function formatShape(shape: LapShape): string | null {
+  const parts: string[] = []
+  if (shape.fadePct != null && shape.firstHalfPower != null && shape.secondHalfPower != null) {
+    const from = Math.round(shape.firstHalfPower)
+    const to = Math.round(shape.secondHalfPower)
+    if (Math.abs(shape.fadePct) >= 5) {
+      parts.push(
+        shape.fadePct < 0
+          ? `cae ${Math.abs(shape.fadePct)}% (${from}→${to} W)`
+          : `sube ${shape.fadePct}% (${from}→${to} W)`
+      )
+    } else {
+      parts.push(`estable (${from}→${to} W)`)
+    }
+  }
+  if (shape.hrDrift != null && Math.abs(shape.hrDrift) >= 4) {
+    parts.push(shape.hrDrift > 0 ? `pulso +${shape.hrDrift} ppm` : `pulso ${shape.hrDrift} ppm`)
+  }
+  return parts.length ? parts.join(', ') : null
+}
+
 /**
  * Plain-text lap table for the coach prompt: this is the only way the model
- * can judge each interval instead of the ride average.
+ * can judge each interval instead of the ride average. When per-second samples
+ * are available, each work block also gets first-half vs second-half shape.
  */
-export function formatLapsForCoach(laps: ActivityLapRow[]): string[] {
+export function formatLapsForCoach(laps: ActivityLapRow[], samples: LapSample[] = []): string[] {
   if (laps.length < 2) return []
 
   const lines: string[] = []
@@ -91,6 +166,11 @@ export function formatLapsForCoach(laps: ActivityLapRow[]): string[] {
     if (lap.max_hr) parts.push(`máx ${lap.max_hr} ppm`)
     if (lap.avg_cadence) parts.push(`cad ${lap.avg_cadence} rpm`)
     if (lap.avg_speed) parts.push(`${(lap.avg_speed * 3.6).toFixed(1)} km/h`)
+    if (lap.effort === 'work' && samples.length) {
+      const analyzed = analyzeLapShape(lap, samples)
+      const shape = analyzed ? formatShape(analyzed) : null
+      if (shape) parts.push(shape)
+    }
     lines.push(`- ${parts.join(' · ')}`)
   }
   return lines

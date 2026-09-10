@@ -1,7 +1,8 @@
 import { generateReply, isAiConfigured } from '@/lib/ai/gemini'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { isTelegramConfigured, sendMessage } from '@/lib/telegram/client'
-import { formatLapsForCoach, type ActivityLapRow } from '@/lib/activities/laps'
+import { formatLapsForCoach, type ActivityLapRow, type LapSample } from '@/lib/activities/laps'
+import { loadActivitySamples } from '@/lib/activities/samples'
 import { localDateKey } from '@/lib/training/dates'
 import { formatDistance, formatDuration } from '@/lib/utils'
 import { buildAthleteContext } from './context'
@@ -14,7 +15,7 @@ Escribí en español rioplatense, texto plano (sin markdown, sin tablas, sin ast
 
 Estructura:
 1. Una línea de veredicto: ¿cumplió la sesión como estaba prescripta?
-2. Comparación concreta prescripto vs ejecutado: duración, intensidad/zona, y si hay vueltas, bloque por bloque (potencia, pulso, cadencia). Usá números reales del contexto.
+2. Comparación concreta prescripto vs ejecutado: duración, intensidad/zona, y si hay vueltas, bloque por bloque (potencia, pulso, cadencia). Si una vuelta dice "cae" o "sube", es la forma dentro del bloque (primera vs segunda mitad), no el promedio. Usá números reales del contexto.
 3. Qué salió bien y qué corregir, con una causa probable.
 4. Qué implica para la próxima sesión (sin cambiar el plan salvo que haga falta; si hace falta, proponelo y pedí confirmación).
 
@@ -50,7 +51,7 @@ function describePrescription(workout: ReviewWorkout): string[] {
   return lines
 }
 
-function describeExecution(activity: any | null, laps: ActivityLapRow[]): string[] {
+function describeExecution(activity: any | null, laps: ActivityLapRow[], samples: LapSample[] = []): string[] {
   if (!activity) {
     return ['no hay actividad registrada para esta sesión (la app no puede medirla, por ejemplo fuerza o gimnasio)']
   }
@@ -70,7 +71,7 @@ function describeExecution(activity: any | null, laps: ActivityLapRow[]): string
   if (activity.training_load) parts.push(`carga: ${Math.round(activity.training_load)}`)
 
   const lines = [parts.join(' · ')]
-  const lapLines = formatLapsForCoach(laps)
+  const lapLines = formatLapsForCoach(laps, samples)
   if (lapLines.length) {
     lines.push('vueltas marcadas por el atleta (cada una es un bloque real de la sesión):')
     lines.push(...lapLines)
@@ -116,6 +117,7 @@ export async function sendSessionReview(userId: string, workoutId: string): Prom
   }
 
   let laps: ActivityLapRow[] = []
+  let samples: LapSample[] = []
   if (activity) {
     const { data } = await supabase
       .from('activity_laps')
@@ -125,6 +127,9 @@ export async function sendSessionReview(userId: string, workoutId: string): Prom
       .eq('activity_id', activity.id)
       .order('lap_index', { ascending: true })
     laps = (data ?? []) as ActivityLapRow[]
+    if (laps.length >= 2) {
+      samples = await loadActivitySamples(supabase, activity.id).catch(() => [])
+    }
   }
 
   const context = await buildAthleteContext(userId)
@@ -133,7 +138,7 @@ export async function sendSessionReview(userId: string, workoutId: string): Prom
     ...describePrescription(workout as ReviewWorkout),
     '',
     '# Cómo la ejecutó',
-    ...describeExecution(activity, laps),
+    ...describeExecution(activity, laps, samples),
     '',
     '# Contexto del atleta',
     context,

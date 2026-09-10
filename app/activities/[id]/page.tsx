@@ -162,7 +162,10 @@ export default async function ActivityDetailPage({ params }: { params: { id: str
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <Link href="/activities">
+          <Link
+            href={`/calendar?date=${localDateKey(activity.start_time, activity.timezone || 'UTC')}`}
+            aria-label="Volver al calendario"
+          >
             <Button variant="secondary">
               <ChevronLeft className="h-4 w-4" />
             </Button>
@@ -183,7 +186,7 @@ export default async function ActivityDetailPage({ params }: { params: { id: str
 
       {workout && (
         <Link
-          href={`/plan?date=${workout.scheduled_date}`}
+          href={`/plan?date=${workout.scheduled_date}&session=${workout.id}`}
           className="flex items-center gap-2 rounded-xl border border-surface bg-surface px-4 py-3 text-sm transition hover:border-accent-500/40"
         >
           <CalendarCheck aria-hidden className="h-4 w-4 shrink-0 text-accent-500" />

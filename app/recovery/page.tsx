@@ -62,11 +62,20 @@ export default async function RecoveryPage() {
     <div className="space-y-4">
       <h1 className="text-2xl font-bold">Recuperación</h1>
       <p className="text-sm text-slate-600">
-        Estos datos entran directo en el contexto del entrenador. Un par de números por día alcanzan
-        para que note cuándo venís quemado.
+        Con el ciclocomputador, la carga ya sale de las salidas. Sueño y HRV a mano no
+        reconstruyen el historial ni reemplazan un reloj: los gráficos de forma no
+        dependen de esta página. Cuando conectes un dispositivo que los mida solo,
+        aparecen acá y en el panel.
       </p>
 
-      <RecoveryForm today={today} />
+      <details className="rounded-xl border border-surface bg-surface p-4">
+        <summary className="cursor-pointer text-sm font-medium text-slate-700">
+          Cargar sueño o sensaciones a mano
+        </summary>
+        <div className="mt-3">
+          <RecoveryForm today={today} />
+        </div>
+      </details>
 
       {recent && recent.length > 0 && (
         <Card>

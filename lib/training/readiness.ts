@@ -21,6 +21,11 @@ export type ReadinessResult = {
   dataSources: string[]
 }
 
+/** True only when a watch (or similar) sent sleep/HRV — not typed recovery. */
+export function hasDeviceRecovery(result: ReadinessResult): boolean {
+  return result.dataSources.includes('garmin')
+}
+
 function clamp(v: number, a = 0, b = 100) {
   return Math.max(a, Math.min(b, v))
 }

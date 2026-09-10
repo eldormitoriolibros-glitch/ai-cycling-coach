@@ -1,6 +1,6 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { zonedTimeToUtc } from '@/lib/training/dates'
-import { removeDuplicateManualActivities } from '@/lib/training/dedupe'
+import { removeDuplicateActivities } from '@/lib/training/dedupe'
 import { estimateTrainingLoad } from '@/lib/training/load'
 import { recomputeActivityLoads, recomputeTrainingLoad } from '@/lib/training/rollup'
 import { parseGarminCsv, type GarminRow } from './csv'
@@ -220,7 +220,7 @@ export async function importGarminCsv(
     }
   }
 
-  const removedDuplicates = created > 0 ? await removeDuplicateManualActivities(userId) : 0
+  const removedDuplicates = created > 0 ? await removeDuplicateActivities(userId) : 0
   const touched = updated + created
 
   const activitiesRecalculated = touched > 0 ? await recomputeActivityLoads(userId) : 0

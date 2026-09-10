@@ -89,10 +89,12 @@ export function PlanBoard({
   workouts,
   today,
   focusDate,
+  focusSessionId,
 }: {
   workouts: ScheduledWorkout[]
   today: string
   focusDate?: string
+  focusSessionId?: string
 }) {
   const router = useRouter()
   const supabase = createClient()
@@ -104,7 +106,38 @@ export function PlanBoard({
   const [view, setView] = useState<'week' | 'cycle'>('week')
   const [reviewing, setReviewing] = useState<string | null>(null)
   const [weekStart, setWeekStart] = useState(() => startOfWeek(focusDate ?? today))
+  const [focusDay, setFocusDay] = useState<string | null>(null)
+  const [focusTick, setFocusTick] = useState(0)
   const splitting = useRef(false)
+
+  useEffect(() => {
+    if (!focusDate) return
+    setView('week')
+    setWeekStart(startOfWeek(focusDate))
+  }, [focusDate, focusSessionId])
+
+  function goToday() {
+    setView('week')
+    setWeekStart(startOfWeek(today))
+    setFocusDay(today)
+    setFocusTick((n) => n + 1)
+  }
+
+  useEffect(() => {
+    const target = focusDay
+      ? `plan-day-${focusDay}`
+      : focusSessionId
+        ? `plan-session-${focusSessionId}`
+        : null
+    if (!target) return
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById(target)?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center',
+      })
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [focusDay, focusTick, focusSessionId, weekStart])
 
   const weekEnd = endOfWeek(weekStart)
   const cycleStart = weekStart
@@ -381,11 +414,9 @@ export function PlanBoard({
             >
               <ChevronRight className="h-5 w-5" />
             </button>
-            {weekStart !== startOfWeek(today) && (
-              <Button variant="secondary" onClick={() => setWeekStart(startOfWeek(today))}>
-                Hoy
-              </Button>
-            )}
+            <Button variant="secondary" onClick={goToday}>
+              Hoy
+            </Button>
           </div>
         </div>
 
@@ -401,6 +432,8 @@ export function PlanBoard({
             sessions={weekSessions}
             onStatus={setStatus}
             reviewing={reviewing}
+            focusSessionId={focusDay ? undefined : focusSessionId}
+            focusDay={focusDay}
           />
         ) : (
           <div className="space-y-4">
@@ -427,6 +460,8 @@ export function PlanBoard({
                     compact
                     onStatus={setStatus}
                     reviewing={reviewing}
+                    focusSessionId={focusDay ? undefined : focusSessionId}
+                    focusDay={focusDay}
                   />
                 </div>
               )
@@ -445,6 +480,8 @@ function WeekAgenda({
   compact,
   onStatus,
   reviewing,
+  focusSessionId,
+  focusDay,
 }: {
   start: string
   today: string
@@ -452,6 +489,8 @@ function WeekAgenda({
   compact?: boolean
   onStatus: (id: string, status: WorkoutStatus) => void
   reviewing: string | null
+  focusSessionId?: string
+  focusDay?: string | null
 }) {
   const days = eachDay(start, addDays(start, 6))
   const byDate = new Map<string, ScheduledWorkout[]>()
@@ -466,7 +505,7 @@ function WeekAgenda({
       {days.map((date) => {
         const daySessions = byDate.get(date) ?? []
         return (
-          <div key={date} className="space-y-2">
+          <div id={`plan-day-${date}`} key={date} className="space-y-2">
             <div className="flex items-baseline justify-between gap-2">
               <p className="text-xs font-semibold uppercase tracking-wide text-muted">
                 {weekday(date)}
@@ -488,7 +527,8 @@ function WeekAgenda({
                   key={w.id}
                   session={w}
                   past={date < today}
-                  defaultOpen={!compact && date === today}
+                  defaultOpen={w.id === focusSessionId || date === focusDay || (!compact && date === today)}
+                  highlighted={w.id === focusSessionId || date === focusDay}
                   actions={
                     w.status === 'scheduled' && date >= today ? (
                       <>

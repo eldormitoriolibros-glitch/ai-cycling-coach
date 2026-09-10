@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { Activity } from 'lucide-react'
 import type { WorkoutStatus } from '@/lib/types/database'
@@ -53,16 +53,22 @@ export function SessionCard({
   session,
   past,
   defaultOpen = false,
+  highlighted = false,
   extra,
   actions,
 }: {
   session: PlanSession
   past?: boolean
   defaultOpen?: boolean
+  highlighted?: boolean
   extra?: string | null
   actions?: React.ReactNode
 }) {
   const [open, setOpen] = useState(defaultOpen)
+
+  useEffect(() => {
+    if (highlighted) setOpen(true)
+  }, [highlighted])
   const kind = resolveSessionKind({
     type: session.workout_type,
     title: session.title,
@@ -105,8 +111,13 @@ export function SessionCard({
 
   return (
     <div
-      className={`rounded-lg border p-3 space-y-2 ${past ? 'opacity-70' : ''} ${
-        strength ? 'border-amber-400/40 bg-amber-50/5' : 'border-surface'
+      id={session.id ? `plan-session-${session.id}` : undefined}
+      className={`rounded-lg border p-3 space-y-2 ${past && !highlighted ? 'opacity-70' : ''} ${
+        highlighted
+          ? 'border-accent-500 bg-accent-500/10 ring-2 ring-accent-500/40'
+          : strength
+            ? 'border-amber-400/40 bg-amber-50/5'
+            : 'border-surface'
       }`}
     >
       <div className="flex items-start justify-between gap-3">

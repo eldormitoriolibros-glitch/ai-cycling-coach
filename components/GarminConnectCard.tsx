@@ -45,7 +45,11 @@ export function GarminConnectCard({ initial }: { initial: ConnectionState }) {
   const [lapsBusy, setLapsBusy] = useState(false)
   const [lapsResult, setLapsResult] = useState<string | null>(null)
   const [lapsProgress, setLapsProgress] = useState<{ scanned: number; activities: number } | null>(null)
+  const [rebuildBusy, setRebuildBusy] = useState(false)
+  const [rebuildResult, setRebuildResult] = useState<string | null>(null)
+  const [rebuildProgress, setRebuildProgress] = useState<string | null>(null)
   const cancelLaps = useRef(false)
+  const cancelRebuild = useRef(false)
   const cancelBackfill = useRef(false)
   const runningRef = useRef(false)
 
@@ -210,6 +214,8 @@ export function GarminConnectCard({ initial }: { initial: ConnectionState }) {
     let scanned = 0
     let activities = 0
     let laps = 0
+    let notInApp = 0
+    let failures = 0
 
     try {
       for (;;) {
@@ -227,15 +233,22 @@ export function GarminConnectCard({ initial }: { initial: ConnectionState }) {
         scanned += data.scanned ?? 0
         activities += data.activitiesWithLaps ?? 0
         laps += data.lapsStored ?? 0
+        notInApp += data.notInApp ?? 0
+        failures += data.failures ?? 0
         setLapsProgress({ scanned, activities })
 
         if (data.done) break
       }
 
+      const extras = [
+        notInApp > 0 ? `${notInApp} en Garmin todavía no están en la app` : null,
+        failures > 0 ? `${failures} fallaron al bajar el FIT` : null,
+      ].filter(Boolean)
+
       setLapsResult(
         activities > 0
-          ? `Listo: ${laps} vueltas en ${activities} actividades (${scanned} revisadas).`
-          : `Revisé ${scanned} actividades y ninguna tiene vueltas marcadas con el botón lap.`
+          ? `Listo: ${laps} vueltas en ${activities} actividades (${scanned} revisadas).${extras.length ? ` ${extras.join('. ')}.` : ''}`
+          : `Revisé ${scanned} actividades y no pude guardar vueltas.${extras.length ? ` ${extras.join('. ')}.` : ''}`
       )
       router.refresh()
     } catch (err) {
@@ -243,6 +256,58 @@ export function GarminConnectCard({ initial }: { initial: ConnectionState }) {
     } finally {
       setLapsBusy(false)
       setLapsProgress(null)
+    }
+  }
+
+  const handleRebuild = async () => {
+    if (rebuildBusy) return
+    setRebuildBusy(true)
+    setRebuildResult(null)
+    setError(null)
+    cancelRebuild.current = false
+
+    let cursor = 0
+    let scanned = 0
+    let imported = 0
+
+    try {
+      for (;;) {
+        if (cancelRebuild.current) {
+          setRebuildResult(`Pausado en ${scanned} revisadas. Apretá de nuevo para terminar; Garmin se pisa sin duplicar.`)
+          break
+        }
+
+        const res = await fetch('/api/garmin/rebuild', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cursor }),
+        })
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.error || 'No se pudo reconstruir el calendario.')
+
+        cursor = data.cursor ?? cursor
+        scanned += data.scanned ?? 0
+        imported += data.imported ?? 0
+        setRebuildProgress(`${scanned} en Garmin · ${imported} bicis escritas`)
+
+        if (data.done) {
+          const extras = [
+            data.csvRemoved ? `${data.csvRemoved} del CSV viejo sacadas` : null,
+            data.duplicatesRemoved ? `${data.duplicatesRemoved} copias de Strava sacadas` : null,
+            data.stravaSynced ? `${data.stravaSynced} de Strava revisadas` : null,
+          ].filter(Boolean)
+          setRebuildResult(
+            `Listo: ${imported} bicis desde Garmin (${scanned} revisadas).${extras.length ? ` ${extras.join('. ')}.` : ''}`
+          )
+          break
+        }
+      }
+      router.refresh()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo reconstruir el calendario.')
+    } finally {
+      setRebuildBusy(false)
+      setRebuildProgress(null)
     }
   }
 
@@ -267,7 +332,7 @@ export function GarminConnectCard({ initial }: { initial: ConnectionState }) {
         )}
 
         <div className="flex flex-wrap gap-2">
-          <Button onClick={handleSync} disabled={syncing || backfill?.status === 'running'}>
+          <Button onClick={handleSync} disabled={syncing || backfill?.status === 'running' || rebuildBusy || lapsBusy}>
             {syncing ? 'Sincronizando...' : 'Sincronizar ahora'}
           </Button>
           <Button variant="secondary" onClick={handleDisconnect} disabled={busy}>
@@ -296,7 +361,8 @@ export function GarminConnectCard({ initial }: { initial: ConnectionState }) {
             <h3 className="text-sm font-semibold">Traer bloques (vueltas)</h3>
             <p className="text-xs text-slate-500">
               Las vueltas que cortaste con el botón lap, para ver cada bloque de la sesión y que el
-              entrenador lo analice. Recorre todo tu historial; podés pausar y retomar cuando quieras.
+              entrenador lo analice. Recorre las bicis que ya están en la app; si una salida vive
+              solo en Garmin, primero sincronizala. Podés pausar y retomar.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -304,7 +370,7 @@ export function GarminConnectCard({ initial }: { initial: ConnectionState }) {
               variant="secondary"
               onClick={handleLaps}
               loading={lapsBusy}
-              disabled={syncing || backfill?.status === 'running'}
+              disabled={syncing || backfill?.status === 'running' || rebuildBusy}
             >
               {lapsBusy ? 'Buscando…' : 'Traer bloques'}
             </Button>
@@ -326,6 +392,40 @@ export function GarminConnectCard({ initial }: { initial: ConnectionState }) {
               </>
             )}
             {lapsResult && <span className="text-xs text-green-700">{lapsResult}</span>}
+          </div>
+        </div>
+
+        <div className="space-y-2 rounded-md border border-slate-300 p-3">
+          <div>
+            <h3 className="text-sm font-semibold">Reconstruir calendario</h3>
+            <p className="text-xs text-slate-500">
+              Reescribe las bicis desde Garmin (sin los restos de 100 m del CSV), después agrega
+              lo que solo esté en Strava. No baja los FIT: eso queda para el historial de abajo.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="secondary"
+              onClick={handleRebuild}
+              loading={rebuildBusy}
+              disabled={syncing || backfill?.status === 'running' || lapsBusy}
+            >
+              {rebuildBusy ? 'Reconstruyendo…' : 'Reconstruir desde Garmin'}
+            </Button>
+            {rebuildBusy && (
+              <>
+                <span className="text-xs text-slate-500">{rebuildProgress ?? 'Empezando…'}</span>
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    cancelRebuild.current = true
+                  }}
+                >
+                  Pausar
+                </Button>
+              </>
+            )}
+            {rebuildResult && <span className="text-xs text-green-700">{rebuildResult}</span>}
           </div>
         </div>
 
@@ -364,7 +464,7 @@ export function GarminConnectCard({ initial }: { initial: ConnectionState }) {
             </div>
           ) : (
             <div className="flex flex-wrap items-center gap-2">
-              <Button variant="secondary" onClick={() => runBackfill(true)} disabled={syncing}>
+              <Button variant="secondary" onClick={() => runBackfill(true)} disabled={syncing || rebuildBusy || lapsBusy}>
                 Importar todo desde cero
               </Button>
               {(backfill?.status === 'idle' || backfill?.status === 'error') && (backfill?.processed ?? 0) > 0 && (
