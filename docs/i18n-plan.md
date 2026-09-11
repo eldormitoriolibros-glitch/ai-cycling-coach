@@ -1,5 +1,8 @@
 # Plan de internacionalización (español / inglés)
 
+> **Estado: no empezado.** `next-intl` no está instalado y todo el texto sigue
+> hardcodeado en español. Es una propuesta, no una descripción del código.
+
 Objetivo: que la app se pueda usar en español o inglés con un selector, sin romper nada de
 lo que ya funciona y sin dejar la mitad de los textos hardcodeados. Este documento está
 escrito para ejecutarse por fases, cada una con criterios de aceptación verificables.

@@ -1,5 +1,11 @@
 # Plan: doctrina de ciclismo para el entrenador
 
+> **Estado: implementado.** Las cuatro fases están en el código. La doctrina
+> vive en `lib/coach/doctrine.ts`, el compositor en `lib/coach/system-prompt.ts`
+> y los tests en `tests/coach-doctrine.test.ts`. Este documento queda como
+> registro de por qué está armado así; la sección 1 («Estado actual») describe
+> el código de *antes* de implementarlo.
+
 Objetivo: que Gemini recete con un criterio de alto rendimiento **nuestro y
 versionado**, no con lo que recuerde el modelo. Este documento está escrito para
 que otro agente lo implemente por fases, sin inventar ciencia ni cambiar el

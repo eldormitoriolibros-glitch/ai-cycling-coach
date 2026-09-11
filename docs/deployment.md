@@ -1,29 +1,18 @@
 # Deployment
 
 Local development is covered in the [README](../README.md). This is the path to a
-public HTTPS origin, which is what Strava and Telegram webhooks require.
+public HTTPS origin, which is what the Telegram (and optional Strava) webhooks
+require.
 
 ## 1. Git
 
-The project is intentionally not a Git repository yet. When you create one, set a
-**local** identity first so a work account is never used:
-
-```powershell
-git init
-git config user.name  "your name"
-git config user.email "your-personal@email"
-git add .
-git commit -m "Initial commit"
-```
-
-`.gitignore` already excludes `.env*` (except `.env.example`), `node_modules`,
-and `.next`. Verify before the first push:
+The project lives in a **private** GitHub repository. `.gitignore` excludes
+`.env*` (except `.env.example`), `node_modules` and `.next`. Verify before any
+push that no secret slipped in:
 
 ```powershell
 git status --short
 ```
-
-Then create a **private** repository under your personal GitHub account and push.
 
 ## 2. Vercel
 
@@ -42,11 +31,22 @@ Free Hobby tier is enough. Note it is for non-commercial use.
    add `https://<project>.vercel.app/**` to the redirect allow-list.
 2. **Authentication → Providers → Email**: turn *Confirm email* back on for
    production.
-3. Free projects **pause after 7 days of inactivity**. Opening the app resumes
+3. **Authentication → Sign In / Providers**: turn **off** *Allow new users to
+   sign up* as soon as the deployment is reachable by anyone else, and set
+   `SIGNUP_INVITE_CODE` so new athletes come in through `/api/auth/signup`.
+   Without the dashboard switch the invite code is bypassable from the browser.
+4. Run every migration in `supabase/migrations/` in filename order. In
+   particular `20260911_multi_user_hardening.sql` must be applied before a
+   second athlete gets an account.
+5. Free projects **pause after 7 days of inactivity**. Opening the app resumes
    it; a paused project makes webhooks fail silently, so if activities stop
    appearing, check this first.
 
-## 4. Strava
+## 4. Strava (optional)
+
+Skip this section entirely if you only use Garmin: leave `STRAVA_CLIENT_ID`,
+`STRAVA_CLIENT_SECRET` and `STRAVA_WEBHOOK_VERIFY_TOKEN` unset and the app
+hides the Strava card.
 
 1. <https://www.strava.com/settings/api> → set **Authorization Callback Domain**
    to your bare production host (`your-project.vercel.app`, no scheme, no path).
@@ -94,8 +94,9 @@ curl "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/getWebhookInfo"
 `CRON_SECRET` in the Vercel environment; Vercel sends it as
 `Authorization: Bearer <value>` and the route rejects anything else.
 
-The job syncs Strava, reconciles past sessions against actual rides, and sends
-one Telegram nudge per athlete per local day.
+For every athlete the job syncs Garmin (and Strava when connected), reconciles
+past sessions against actual rides, and sends the coach's review for whatever
+closed since the last run. There is no morning briefing.
 
 Limitations on the Hobby plan: **two cron jobs, once per day each**, fired at a
 fixed UTC hour. Pick the hour that suits your timezone. Trigger it by hand with:
@@ -117,21 +118,23 @@ allows only one subscription per app.
 
 ## 8. Rotating secrets
 
-- `TOKEN_ENCRYPTION_KEY` — rotating it makes stored Strava tokens undecryptable.
-  Disconnect and reconnect Strava afterwards.
+- `TOKEN_ENCRYPTION_KEY` — rotating it makes stored Garmin and Strava
+  credentials undecryptable. Every athlete has to reconnect afterwards.
 - `STRAVA_CLIENT_SECRET` — re-register the webhook subscription.
 - `TELEGRAM_WEBHOOK_SECRET` — re-run `setWebhook`.
 - `CRON_SECRET` — update in Vercel; no other step needed.
+- `SIGNUP_INVITE_CODE` — update in Vercel and tell whoever still needs it.
 - `SUPABASE_SERVICE_ROLE_KEY` — rotate in Supabase, then update Vercel.
 
 ## Cost
 
 | Service | Plan | Limit that matters |
 | --- | --- | --- |
-| Vercel | Hobby | Non-commercial use |
+| Vercel | Hobby | Non-commercial use; 300 s per function |
 | Supabase | Free | 500 MB database; pauses after 7 idle days |
+| Gemini | Free tier | Daily request cap per model, **shared by every athlete** |
 | Strava | Free | 200 requests / 15 min |
-| Gemini | Free tier | Daily request cap per model |
 | Telegram | Free | None relevant |
 
-Total: nothing.
+Total: nothing. The first thing to run out with several athletes is the Gemini
+daily cap, which is why `/api/coach` is rate limited per user.

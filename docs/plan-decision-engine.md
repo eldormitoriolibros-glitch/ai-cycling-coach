@@ -1,5 +1,12 @@
 # Plan: Decision Engine — Athlete Profile, Adaptive Loop, What-If
 
+> **Status: implemented, except the what-if UI.** `athlete-profile.ts`,
+> `readiness.ts`, `projection.ts`, `replan.ts`, the coach context wiring and
+> `/api/training/simulate` all shipped. The simulate endpoint still has no
+> frontend, so nothing in the app calls it. Note the code references here point
+> at `lib/training/planner.ts`, which was deleted; the live planner is
+> `planner2.ts`.
+
 Three new modules that move physiological intelligence from the LLM into
 deterministic, testable code. No database migrations needed — all data already
 exists in the current schema.

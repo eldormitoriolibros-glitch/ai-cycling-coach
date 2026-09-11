@@ -1,5 +1,10 @@
 # Plan: Trend Tracking & What-If UI
 
+> **Status: half implemented.** Snapshots ship (`lib/training/snapshot.ts`, the
+> `power_curve_snapshots` table, trend comparison in `lib/coach/context.ts`).
+> The what-if panel was never built: `app/coach/what-if-panel.tsx` does not
+> exist and `/api/training/simulate` has no caller.
+
 Two features to complete the decision engine: historical power curve snapshots
 for trend analysis, and a simple UI for the what-if simulation endpoint.
 

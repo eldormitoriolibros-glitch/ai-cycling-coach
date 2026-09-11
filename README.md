@@ -1,9 +1,25 @@
 # AI Cycling Coach
 
-Personal cycling coach. Next.js 14 (App Router) + Supabase + Strava.
+Personal cycling coach. Next.js 14 (App Router) + Supabase + Garmin + Telegram +
+Google Gemini.
 
-Everything runs on free tiers: Supabase free project, Strava API, Vercel Hobby,
-Google Gemini free tier, Telegram Bot API.
+Everything runs on free tiers: Supabase free project, Vercel Hobby, Gemini free
+tier, Telegram Bot API. Garmin is read by logging into Garmin Connect with your
+own credentials; Strava is an optional backup.
+
+## What it does
+
+- **Imports your rides** from Garmin Connect, including laps, and estimates
+  training load per activity from power, heart rate or, failing both, duration.
+- **Tracks fitness, fatigue and form** (CTL / ATL / TSB) computed here, never
+  copied from a vendor.
+- **Plans the week** with a deterministic planner constrained by your declared
+  availability, and records each approved week so 3-on / 1-off blocks work.
+- **Talks to you** on the web and on Telegram. The coach can propose a plan
+  change, but nothing is written until you confirm it.
+- **Reviews every finished session**: prescribed against executed, block by
+  block when you used the lap button, with a verdict the app computes and the
+  model only narrates.
 
 ## Setup
 
@@ -17,19 +33,19 @@ Copy-Item .env.example .env.local
 ### 2. Supabase
 
 1. Create a project at <https://supabase.com/dashboard>.
-2. **SQL Editor** → run `supabase/migrations/001_initial_schema.sql`, then
-   `002_power_recovery_periodisation.sql`, in that order.
-   (Or `supabase db reset` if you use the CLI. `001` expects a fresh database.)
+2. **SQL Editor** → run everything in `supabase/migrations/` in filename order.
+   `001` expects a fresh database.
 3. **Project Settings → API** → copy the URL, the `anon` key and the
    `service_role` key into `.env.local`.
 4. **Authentication → Providers → Email**: for local testing, turn *Confirm
-   email* off so signup logs you straight in. Leave it on for production.
+   email* off so signup logs you straight in.
 5. **Authentication → URL Configuration** → add `http://localhost:3000/**` to
    the redirect allow-list.
 
 ### 3. Token encryption key
 
-Strava tokens are stored AES-256-GCM encrypted, never in plaintext.
+Garmin and Strava credentials are stored AES-256-GCM encrypted, never in
+plaintext.
 
 ```powershell
 node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
@@ -37,21 +53,23 @@ node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
 
 Put the output in `TOKEN_ENCRYPTION_KEY`.
 
-### 4. Strava
+### 4. Garmin (the main data source)
 
-1. <https://www.strava.com/settings/api> → create an application.
-2. Set **Authorization Callback Domain** to `localhost` for development
-   (just the host, no scheme or path).
-3. Copy the Client ID and Client Secret into `.env.local`.
-4. Invent any string for `STRAVA_WEBHOOK_VERIFY_TOKEN`.
+Nothing to register. Open **Conexiones**, enter your Garmin Connect email and
+password, and the app logs in on your behalf and stores the session tokens
+encrypted. From there it pulls activities, FIT files (laps, temperature,
+respiration) and daily health data.
+
+There is no Garmin developer API involved: their program is approval-only and
+aimed at corporate partners.
 
 ### 5. Google Gemini (the coach's brain)
 
 1. <https://aistudio.google.com/apikey> → **Create API key**. Free tier, no card.
-2. Put it in `GEMINI_API_KEY`. `GEMINI_MODEL` defaults to `gemini-2.0-flash`.
+2. Put it in `GEMINI_API_KEY`. `GEMINI_MODEL` defaults to `gemini-3.6-flash`.
 
 Without this key the app still runs; the **Entrenador** page just tells you the
-key is missing.
+key is missing, and session reviews are skipped.
 
 ### 6. Telegram (optional)
 
@@ -72,45 +90,61 @@ curl "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/setWebhook" \
 Then open **Conexiones**, press *Vincular Telegram*, and send the bot
 `/vincular <code>`. The code is single-use.
 
-Bot commands: `/hoy` for today's session, `/ayuda` for help. Anything else goes
-straight to the coach.
+Bot commands:
 
-### 7. Daily job (optional)
+| Command | What it does |
+| --- | --- |
+| `/hoy` | Today's session |
+| `/semana` | This week's plan |
+| `/bici` | Marks today's ride done, pulls it from Garmin and sends the review |
+| `/fuerza` | Marks today's strength session done |
+| `/vincular <code>` | Links the chat to your account |
+| `/ayuda` | Help |
 
-Once deployed, [`vercel.json`](vercel.json) runs `/api/cron/daily`: it syncs
-Strava, marks past sessions as done or skipped based on whether you actually
-rode, and sends the Telegram nudge. Set `CRON_SECRET` for it to run:
+Anything else goes straight to the coach.
+
+### 7. Strava (optional backup)
+
+Only needed if you want Strava as a second source. Leave `STRAVA_CLIENT_ID`,
+`STRAVA_CLIENT_SECRET` and `STRAVA_WEBHOOK_VERIFY_TOKEN` unset and the Strava
+card disappears; everything else keeps working.
+
+### 8. Daily job (optional)
+
+Once deployed, [`vercel.json`](vercel.json) runs `/api/cron/daily`: for every
+athlete it syncs Garmin (and Strava if connected), marks past sessions done or
+skipped based on whether they actually rode, and sends the coach's review for
+whatever closed since the last run. Set `CRON_SECRET` for it to run:
 
 ```powershell
 node -e "console.log(require('crypto').randomBytes(24).toString('base64url'))"
 ```
 
-### 8. Run
+### 9. Run
 
 ```powershell
 npm run dev
 ```
 
-Sign up, fill in the profile (FTP and heart rates drive the load estimates),
-then go to **Conexiones** and connect Strava.
+Sign up, fill in the profile (FTP and heart rates drive the load estimates) and
+your weekly availability, then go to **Conexiones** and connect Garmin.
 
-## Strava webhooks (optional)
+## Sharing with other people
 
-Webhooks need a public HTTPS URL, so this only works once deployed (or through
-a tunnel such as `cloudflared tunnel --url http://localhost:3000`).
+This started as a single-athlete app. Before giving anyone else an account:
 
-Register the subscription once:
+1. Run `supabase/migrations/20260911_multi_user_hardening.sql`. It adds the
+   missing RLS on `power_curve_snapshots` and stops the browser from writing
+   the Telegram link columns on `users`.
+2. Set `SIGNUP_INVITE_CODE` **and** turn off *Allow new users to sign up* in the
+   Supabase dashboard. The code alone is not enough: without the dashboard
+   switch the browser can call Supabase signup directly.
+3. Remember the Gemini quota is shared by everyone on the deployment.
+   `/api/coach` is limited to 20 messages per athlete per 10 minutes.
 
-```bash
-curl -X POST https://www.strava.com/api/v3/push_subscriptions \
-  -F client_id=$STRAVA_CLIENT_ID \
-  -F client_secret=$STRAVA_CLIENT_SECRET \
-  -F callback_url=https://<your-domain>/api/strava/webhook \
-  -F verify_token=$STRAVA_WEBHOOK_VERIFY_TOKEN
-```
-
-Without a webhook, use **Sincronizar ahora** on the Conexiones page. First sync
-pulls the last 180 days; later syncs only pull what changed.
+Known remaining gap: `/api/auth/resolve` maps a username to an email address so
+you can log in without typing the full address. It is rate limited, but it is
+still an enumeration surface. Drop username login if that matters to you.
 
 ## Scripts
 
@@ -120,47 +154,54 @@ pulls the last 180 days; later syncs only pull what changed.
 | `npm run build` | Production build |
 | `npm run lint` | ESLint |
 | `npm run type-check` | `tsc --noEmit` |
+| `npm test` | Vitest |
 
 ## Layout
 
 ```
 app/
   api/coach/         Coach chat endpoint
-  api/cron/daily/    Nightly sync + reconcile + Telegram nudge
-  api/strava/        OAuth, manual sync, disconnect, webhook
+  api/cron/daily/    Nightly sync + reconcile + session reviews
+  api/garmin/        Connect, sync, archive import, backfill, rebuild
+  api/strava/        OAuth, manual sync, disconnect, webhook (optional)
   api/telegram/      Link-code issuing, bot webhook
-  api/training/      Load recalculation, FTP adoption, plan propose/commit
-  auth/callback/     Supabase email-confirmation landing route
-  activities/        Synced activity list
+  api/training/      Load recalculation, FTP adoption, plan propose/commit,
+                     per-session review
+  activities/        Synced activity list and per-ride detail
+  calendar/          Month / six-month / year activity views
   coach/             Chat UI
   plan/              Weekly plan proposal and agenda
   power/             Power curve, estimated FTP, training zones
-  recovery/          Manual sleep / HRV / soreness entry
+  recovery/          Optional manual sleep / HRV / soreness entry
   settings/          Provider connections
 lib/
-  ai/gemini.ts       Gemini REST call
-  coach/             System prompt, athlete context, conversation flow, daily nudge
-  crypto.ts          AES-256-GCM helpers for stored OAuth tokens
-  env.ts             zod-validated server environment
-  strava/            API client, token refresh, sync, mapping, stream backfill
-  supabase/          browser / server / service-role / middleware clients
-  telegram/          Bot API client
-  training/load.ts        TSS estimation (power, with a heart-rate fallback)
+  ai/gemini.ts            Gemini REST call with model fallback
+  coach/doctrine.ts       The training doctrine injected into every prompt
+  coach/system-prompt.ts  Composes rules + doctrine + athlete context
+  coach/context.ts        Compact athlete snapshot for the model
+  coach/session-review.ts Post-session feedback
+  coach/session-compare.ts Deterministic prescribed-vs-executed verdict
+  coach/apply-plan.ts     Persists a plan only after the athlete confirms
+  crypto.ts               AES-256-GCM helpers, constant-time compare
+  env.ts                  zod-validated server environment
+  garmin/                 Login, activity sync, FIT parsing, laps, backfill
+  rate-limit.ts           In-memory fixed-window limiter
+  strava/                 Optional second source
+  supabase/               browser / server / service-role / middleware clients
+  training/planner2.ts    Pure weekly plan builder
+  training/plan-service.ts Proposes, explains and commits plans
+  training/load.ts        TSS estimation (power, HR or duration)
   training/rollup.ts      CTL / ATL / TSB series
-  training/power-curve.ts Mean-maximal power, pure
-  training/ftp.ts         FTP estimation from the power curve
-  training/planner.ts     Pure weekly plan builder
   training/reconcile.ts   Closes out past sessions against actual rides
-  types/database.ts  Mirror of the SQL schema
-supabase/migrations/ Database schema
+  types/database.ts       Mirror of the SQL schema
+supabase/migrations/      Database schema
 ```
 
 ## Power and FTP
 
-Per-second samples are **not** stored. After each sync, rides recorded with a
-power meter have their watts stream fetched once, reduced to a mean-maximal
-curve (5s, 15s, 1min, 5min, 8min, 20min, 60min) and saved as ~6 numbers on the
-activity row. About 1 KB per ride instead of ~7000 rows.
+Per-second samples are kept only for charts on recent rides. For FTP, each ride
+with power is reduced to a mean-maximal curve (5s, 15s, 1min, 5min, 8min, 20min,
+60min) and saved as ~6 numbers on the activity row.
 
 FTP is then estimated over a 90-day window as the best of:
 
@@ -172,7 +213,7 @@ number before accepting it.
 
 ## Planning
 
-[`lib/training/planner.ts`](lib/training/planner.ts) is a pure function. Given
+[`lib/training/planner2.ts`](lib/training/planner2.ts) is a pure function. Given
 availability, FTP, heart rates, CTL, TSB and how deep you are into the current
 block, it produces a week:
 
@@ -190,21 +231,42 @@ Each approved week is recorded in `plan_weeks`, which is what makes the 3-on /
 Gemini only writes the paragraph explaining the week. It cannot change a number,
 and the plan still works with no API key.
 
-Nothing is written to the database until you press **Aprobar**. Approving replaces
-only sessions still marked *scheduled* — anything you already completed is left
-alone.
+Nothing is written to the database until you press **Aprobar**. Approving
+replaces only sessions still marked *scheduled*, and only the same kind of
+session on the same date — shortening a ride never deletes that day's strength
+work.
+
+## The coach
+
+Three layers, in this order inside the system prompt:
+
+1. **Rules** (`lib/coach/index.ts`) — how to operate the app: the hidden
+   ```plan``` JSON contract, ask before changing anything, never invent data,
+   no medical advice, respect the availability ceiling.
+2. **Doctrine** (`lib/coach/doctrine.ts`) — how to train. Intensity
+   distribution picked from your weekly bike ceiling (under 6 h, 6–10 h, over
+   10 h), 3+1 blocks, session design, reading an athlete with no watch.
+3. **Athlete context** (`lib/coach/context.ts`) — your actual numbers.
+
+Plan changes go proposal → confirmation → write. The coach embeds a ```plan```
+block the athlete never sees; saying *sí* on Telegram, or pressing the button on
+the web, is what persists it.
+
+Session reviews get a fourth input: a verdict computed by
+`lib/coach/session-compare.ts` (*como lo prescripto*, *más duro*, *más corto*,
+*calidad incompleta*…). The model is told to copy it rather than form its own.
 
 ## Metrics
 
 | Value | How it is derived |
 | --- | --- |
-| Training load (TSS) | `(s × NP × IF) / (FTP × 3600) × 100`, or a heart-rate-reserve fallback when there is no power |
+| Training load (TSS) | `(s × NP × IF) / (FTP × 3600) × 100`, with heart-rate-reserve and duration fallbacks |
 | Fitness (CTL) | 42-day exponentially-weighted average of daily load |
 | Fatigue (ATL) | 7-day exponentially-weighted average of daily load |
 | Form (TSB) | Yesterday's CTL minus yesterday's ATL |
 
 All four are recomputed after every sync, and after any FTP or heart-rate change.
-They are this app's own estimates, not Strava or Garmin values.
+They are this app's own estimates, not Garmin or Strava values.
 
 ## Notes
 
@@ -212,7 +274,5 @@ They are this app's own estimates, not Strava or Garmin values.
   marked `server-only`; never reference it from a client component.
 - Derived metrics (training load, intensity factor) are computed here and are
   not vendor-provided values.
-- Garmin's developer program is approval-only and aimed at business partners,
-  so Garmin devices are read through Strava instead.
 - The coach is told never to invent data, never to give medical advice, and to
   ask for confirmation before changing an existing plan.
