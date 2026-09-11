@@ -1,5 +1,18 @@
 import { describe, expect, it } from 'vitest'
-import { pickLastProposedPlan } from '@/lib/coach/proposed-plan'
+import {
+  pendingPlanMetadata,
+  pickLastPendingPlan,
+  pickLastProposedPlan,
+} from '@/lib/coach/proposed-plan'
+import type { CoachPlan } from '@/lib/training/coach-plan'
+
+const PLAN_A: CoachPlan = {
+  workouts: [{ date: '2026-09-11', type: 'endurance', duration_minutes: 60, title: 'Z2 suave' }],
+}
+
+const PLAN_B: CoachPlan = {
+  workouts: [{ date: '2026-09-12', type: 'threshold', duration_minutes: 90, title: '3x10' }],
+}
 
 const PROPOSAL = `Acortamos la bici de hoy.
 
@@ -28,5 +41,58 @@ describe('pickLastProposedPlan', () => {
         { intent: 'chat', message: olderWeek },
       ])
     ).toBeNull()
+  })
+
+  it('keeps a metadata plan across follow-up chat', () => {
+    const hit = pickLastPendingPlan([
+      { id: 'chat-2', intent: 'chat', message: 'Z2 es 65–75% del FTP.' },
+      {
+        id: 'plan-1',
+        intent: 'proposed_plan',
+        message: PROPOSAL,
+        metadata: pendingPlanMetadata({ id: 'abc', plan: PLAN_A, status: 'pending' }),
+      },
+    ])
+    expect(hit?.id).toBe('abc')
+    expect(hit?.plan.workouts[0].date).toBe('2026-09-11')
+  })
+
+  it('does not reuse a plan that was already applied', () => {
+    expect(
+      pickLastPendingPlan([
+        { id: 'ok', intent: 'plan_applied', message: 'Cambio confirmado. Quedó en tu plan: 1 sesión.' },
+        {
+          id: 'plan-1',
+          intent: 'plan_applied',
+          message: PROPOSAL,
+          metadata: pendingPlanMetadata({ id: 'abc', plan: PLAN_A, status: 'applied' }),
+        },
+        {
+          id: 'plan-old',
+          intent: 'proposed_plan',
+          message: 'semana vieja',
+          metadata: pendingPlanMetadata({ id: 'old', plan: PLAN_B, status: 'pending' }),
+        },
+      ])
+    ).toBeNull()
+  })
+
+  it('prefers the newest pending plan when the coach proposed twice', () => {
+    const hit = pickLastPendingPlan([
+      {
+        id: 'plan-b',
+        intent: 'proposed_plan',
+        message: 'mejor 3x10',
+        metadata: pendingPlanMetadata({ id: 'b', plan: PLAN_B, status: 'pending' }),
+      },
+      {
+        id: 'plan-a',
+        intent: 'proposed_plan',
+        message: PROPOSAL,
+        metadata: pendingPlanMetadata({ id: 'a', plan: PLAN_A, status: 'superseded' }),
+      },
+    ])
+    expect(hit?.id).toBe('b')
+    expect(hit?.plan.workouts[0].title).toBe('3x10')
   })
 })

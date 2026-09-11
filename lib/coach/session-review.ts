@@ -8,7 +8,7 @@ import { looksStrength } from '@/lib/training/split-sessions'
 import { formatDistance, formatDuration } from '@/lib/utils'
 import { buildAthleteContext } from './context'
 import { COACH_DOCTRINE_REVIEW } from './doctrine'
-import { compareSession, formatSessionComparison } from './session-compare'
+import { compareSession, formatSessionComparison, pinReviewVerdict } from './session-compare'
 import { composeReviewSystemPrompt } from './system-prompt'
 
 import 'server-only'
@@ -173,6 +173,8 @@ export async function sendSessionReview(userId: string, workoutId: string): Prom
 
   if (!text) return false
 
+  const pinned = pinReviewVerdict(text, comparison)
+
   await supabase
     .from('workouts')
     .update({ review_sent_at: new Date().toISOString() })
@@ -182,12 +184,12 @@ export async function sendSessionReview(userId: string, workoutId: string): Prom
     user_id: userId,
     direction: 'outbound',
     channel: profile?.telegram_chat_id ? 'telegram' : 'web',
-    message: text,
+    message: pinned,
     intent: 'session_review',
   })
 
   if (profile?.telegram_chat_id && isTelegramConfigured()) {
-    await sendMessage(profile.telegram_chat_id, text).catch(() => {})
+    await sendMessage(profile.telegram_chat_id, pinned).catch(() => {})
   }
 
   return true

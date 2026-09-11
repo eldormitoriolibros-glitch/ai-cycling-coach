@@ -13,7 +13,7 @@ import { computeReadiness } from '@/lib/training/readiness'
 import { scheduledIdsToReplace } from './plan-replace'
 import { splitCombinedSession } from './split-sessions'
 import { resolveSessionKind, resolveSessionZone } from './session-prescription'
-import { buildBikeSessionDescription } from './workout-blocks'
+import { commitSessionDescription } from './workout-blocks'
 
 import 'server-only'
 
@@ -296,18 +296,14 @@ export async function coachPlanToDraft(userId: string, plan: CoachPlanInput): Pr
     }).slice(0, 20)
     const power = kind === 'strength' || !ftp || !template.powerFactor ? null : Math.round(ftp * template.powerFactor)
     const hr = kind === 'strength' || !maxHr || !template.hrFactor ? null : Math.round(maxHr * template.hrFactor)
-    const rawDescription = w.description?.trim()
-    const description =
-      kind === 'strength'
-        ? (rawDescription || `${template.mainWork}.`).slice(0, 1000)
-        : buildBikeSessionDescription({
-            kind,
-            minutes,
-            zone,
-            title: w.title,
-            rawDescription,
-            templateMainWork: template.mainWork,
-          }).slice(0, 1000)
+    const description = commitSessionDescription({
+      kind,
+      minutes,
+      zone,
+      title: w.title,
+      rawDescription: w.description,
+      templateMainWork: template.mainWork,
+    })
 
     return {
       scheduled_date: w.date,

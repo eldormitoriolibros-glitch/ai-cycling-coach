@@ -5,6 +5,7 @@ import {
   formatBikeDescription,
   blocksForBikeSession,
   buildBikeSessionDescription,
+  commitSessionDescription,
   dedupeWarmupCooldownProse,
 } from '@/lib/training/workout-blocks'
 
@@ -112,5 +113,23 @@ describe('buildBikeSessionDescription', () => {
     expect(text.match(/entrada/gi)).toHaveLength(1)
     expect(text.match(/vuelta a la calma/gi)).toHaveLength(1)
     expect(text).not.toMatch(/15 min de entrada/)
+  })
+})
+
+describe('commitSessionDescription', () => {
+  it('persists the coach description instead of wrapping it with template blocks', () => {
+    const coach =
+      '4x5 min en Z4 recuperando 3 min a 90 rpm. Terreno llano. Sin vueltas extra de Z2.'
+    const text = commitSessionDescription({
+      kind: 'threshold',
+      minutes: 75,
+      zone: 'Z4',
+      title: 'Bici 4x5 Z4',
+      rawDescription: coach,
+      templateMainWork: 'Ritmo constante en Z2',
+    })
+    expect(text).toBe(coach)
+    expect(text).not.toMatch(/entrada en calor/)
+    expect(text).not.toMatch(/Ritmo constante en Z2/)
   })
 })

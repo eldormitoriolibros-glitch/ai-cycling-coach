@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { compareSession, formatSessionComparison } from '@/lib/coach/session-compare'
+import {
+  compareSession,
+  firstLineMatchesVerdict,
+  formatSessionComparison,
+  pinReviewVerdict,
+} from '@/lib/coach/session-compare'
 import { formatExecution } from '@/lib/coach/execution'
 
 describe('compareSession', () => {
@@ -143,6 +148,26 @@ describe('formatSessionComparison', () => {
     })
     expect(lines[0]).toBe('veredicto: más suave')
     expect(lines[1]).toMatch(/210 W/)
+  })
+})
+
+describe('pinReviewVerdict', () => {
+  const suave = { verdict: 'mas_suave' as const, label: 'más suave', notes: [] }
+
+  it('keeps a first line that already names the verdict', () => {
+    const text = 'Más suave de lo que pedía el plan.\nLa potencia se fue 16% abajo.'
+    expect(pinReviewVerdict(text, suave)).toBe(text)
+    expect(firstLineMatchesVerdict(text, suave)).toBe(true)
+  })
+
+  it('replaces a softened or contradictory first line', () => {
+    const pinned = pinReviewVerdict(
+      'Excelente sesión, casi como lo prescripto.\nLa potencia media quedó corta.',
+      suave
+    )
+    expect(pinned.startsWith('Más suave.')).toBe(true)
+    expect(pinned).toMatch(/potencia media/)
+    expect(pinned).not.toMatch(/como lo prescripto/)
   })
 })
 

@@ -1,7 +1,7 @@
 import { chooseModels, generateReply, type ChatTurn } from '@/lib/ai/gemini'
 import { geminiEnv } from '@/lib/env'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { applyCoachPlanIfRequested } from './apply-plan'
+import { applyCoachPlanIfRequested, persistCoachOutbound } from './apply-plan'
 import { buildAthleteContext } from './context'
 import { COACH_DOCTRINE } from './doctrine'
 import { composeCoachSystemPrompt } from './system-prompt'
@@ -96,13 +96,7 @@ export async function askCoach(
 
   const rawReply = await generateReply(systemInstruction, history, { models })
   const applied = await applyCoachPlanIfRequested(userId, trimmed, rawReply)
-
-  await supabase.from('coach_messages').insert({
-    user_id: userId,
-    direction: 'outbound',
-    channel,
-    message: applied.reply,
-  })
+  await persistCoachOutbound(userId, channel, applied)
 
   return applied.reply
 }

@@ -145,3 +145,40 @@ export function formatSessionComparison(result: SessionCompareResult): string[] 
   for (const note of result.notes) lines.push(note)
   return lines
 }
+
+function fold(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+}
+
+export function verdictLine(result: SessionCompareResult): string {
+  const label = result.label
+  return `${label.charAt(0).toUpperCase()}${label.slice(1)}.`
+}
+
+/** True when the first line names this verdict and not a different one. */
+export function firstLineMatchesVerdict(text: string, result: SessionCompareResult): boolean {
+  const first = text.trim().split(/\r?\n/, 1)[0] ?? ''
+  const folded = fold(first)
+  if (!folded.includes(fold(result.label))) return false
+  return !Object.values(LABEL).some(
+    (label) => label !== result.label && folded.includes(fold(label))
+  )
+}
+
+/**
+ * The model narrates the review; the first line has to be the app's verdict.
+ * If it softens or contradicts it, replace that line.
+ */
+export function pinReviewVerdict(text: string, result: SessionCompareResult): string {
+  const trimmed = text.replace(/^\uFEFF/, '').trim()
+  const canonical = verdictLine(result)
+  if (!trimmed) return canonical
+  if (firstLineMatchesVerdict(trimmed, result)) return trimmed
+
+  const newline = trimmed.indexOf('\n')
+  const rest = newline === -1 ? '' : trimmed.slice(newline + 1).trim()
+  return rest ? `${canonical}\n${rest}` : canonical
+}

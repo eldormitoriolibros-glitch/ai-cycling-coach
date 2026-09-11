@@ -161,6 +161,33 @@ export function buildBikeSessionDescription(input: {
   })
 }
 
+/**
+ * What we persist on commit. If the coach wrote a description, keep it —
+ * filling entrada/vuelta from the template contradicted the chat.
+ */
+export function commitSessionDescription(input: {
+  kind: string
+  minutes: number
+  zone: string
+  title?: string | null
+  rawDescription?: string | null
+  templateMainWork: string
+}): string {
+  const raw = input.rawDescription?.trim() ?? ''
+  if (input.kind === 'strength') {
+    return (raw || `${input.templateMainWork}.`).slice(0, 1000)
+  }
+  if (raw) return dedupeWarmupCooldownProse(raw).slice(0, 1000)
+  return buildBikeSessionDescription({
+    kind: input.kind,
+    minutes: input.minutes,
+    zone: input.zone,
+    title: input.title,
+    rawDescription: raw,
+    templateMainWork: input.templateMainWork,
+  }).slice(0, 1000)
+}
+
 /** Default strength table when the plan only has a generic "fuerza/core" note. */
 export function strengthExercises(description: string | null | undefined): StrengthExercise[] {
   const text = (description ?? '').toLowerCase()
