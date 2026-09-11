@@ -1,4 +1,4 @@
-import { serverEnv } from '@/lib/env'
+import { serverEnv, stravaEnv } from '@/lib/env'
 import { stravaActivitySchema, stravaTokenSchema, type StravaActivity, type StravaToken } from './types'
 
 import 'server-only'
@@ -23,12 +23,23 @@ export class StravaError extends Error {
   }
 }
 
+export function isStravaConfigured(): boolean {
+  return stravaEnv() !== null
+}
+
+/** Throws instead of returning null so every call site fails loudly, not silently. */
+function requireStravaEnv() {
+  const env = stravaEnv()
+  if (!env) throw new StravaError('Strava no está configurado en este servidor.', 503, false)
+  return env
+}
+
 export function redirectUri(): string {
   return `${serverEnv().NEXT_PUBLIC_SITE_URL}/api/strava/callback`
 }
 
 export function authorizeUrl(state: string): string {
-  const env = serverEnv()
+  const env = requireStravaEnv()
   const params = new URLSearchParams({
     client_id: env.STRAVA_CLIENT_ID,
     redirect_uri: redirectUri(),
@@ -41,7 +52,7 @@ export function authorizeUrl(state: string): string {
 }
 
 async function postToken(body: Record<string, string>): Promise<StravaToken> {
-  const env = serverEnv()
+  const env = requireStravaEnv()
 
   const response = await fetch(TOKEN_URL, {
     method: 'POST',

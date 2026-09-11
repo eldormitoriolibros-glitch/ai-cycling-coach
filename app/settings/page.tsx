@@ -2,7 +2,7 @@ import { GarminConnectCard } from '@/components/GarminConnectCard'
 import { GarminImportCard } from '@/components/GarminImportCard'
 import { StravaCard } from '@/components/StravaCard'
 import { TelegramCard } from '@/components/TelegramCard'
-import { telegramEnv } from '@/lib/env'
+import { stravaEnv, telegramEnv } from '@/lib/env'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
 
@@ -46,6 +46,7 @@ export default async function SettingsPage({
   ])
 
   const telegram = telegramEnv()
+  const stravaConfigured = stravaEnv() !== null
   const callbackMessage = searchParams.strava ? CALLBACK_MESSAGES[searchParams.strava] : undefined
 
   return (
@@ -74,17 +75,20 @@ export default async function SettingsPage({
         botUsername={telegram?.TELEGRAM_BOT_USERNAME ?? null}
       />
 
-      <div className="pt-2">
-        <p className="mb-2 text-xs uppercase tracking-wide text-slate-500">Respaldo</p>
-        <StravaCard
-          connected={Boolean(connection)}
-          athleteId={connection?.athlete_id ?? null}
-          lastSyncAt={connection?.last_sync_at ?? null}
-          lastSyncError={connection?.last_sync_error ?? null}
-          status={connection?.connection_status ?? null}
-          initialMessage={callbackMessage ?? null}
-        />
-      </div>
+      {(stravaConfigured || connection) && (
+        <div className="pt-2">
+          <p className="mb-2 text-xs uppercase tracking-wide text-slate-500">Respaldo</p>
+          <StravaCard
+            configured={stravaConfigured}
+            connected={Boolean(connection)}
+            athleteId={connection?.athlete_id ?? null}
+            lastSyncAt={connection?.last_sync_at ?? null}
+            lastSyncError={connection?.last_sync_error ?? null}
+            status={connection?.connection_status ?? null}
+            initialMessage={callbackMessage ?? null}
+          />
+        </div>
+      )}
     </div>
   )
 }

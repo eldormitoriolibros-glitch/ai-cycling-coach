@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { cronEnv, geminiEnv, serverEnvIssues, telegramEnv } from '@/lib/env'
+import { cronEnv, geminiEnv, serverEnvIssues, stravaEnv, telegramEnv } from '@/lib/env'
 
 export const dynamic = 'force-dynamic'
 
@@ -19,6 +19,7 @@ export async function GET() {
         gemini: geminiEnv() !== null,
         telegram: telegramEnv() !== null,
         cron: cronEnv() !== null,
+        strava: stravaEnv() !== null,
       },
     },
     { status: issues.length === 0 ? 200 : 503 }

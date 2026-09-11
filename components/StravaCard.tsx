@@ -6,6 +6,7 @@ import { History, RefreshCw, Unlink } from 'lucide-react'
 import { Alert, Button, Card } from '@/components/ui'
 
 type Props = {
+  configured?: boolean
   connected: boolean
   athleteId: number | null
   lastSyncAt: string | null
@@ -15,6 +16,7 @@ type Props = {
 }
 
 export function StravaCard({
+  configured = true,
   connected,
   athleteId,
   lastSyncAt,
@@ -96,6 +98,11 @@ export function StravaCard({
 
       {lastSyncError && <Alert variant="error">{lastSyncError}</Alert>}
       {message && <Alert variant={message.variant}>{message.text}</Alert>}
+      {!configured && (
+        <Alert variant="info">
+          Falta configurar las credenciales de Strava en el servidor. Garmin funciona igual.
+        </Alert>
+      )}
 
       <div className="flex flex-wrap gap-2">
         {connected ? (
@@ -126,7 +133,10 @@ export function StravaCard({
           </>
         ) : (
           // Full page navigation: the OAuth redirect must leave the SPA.
-          <Button onClick={() => window.location.assign('/api/strava/connect')}>
+          <Button
+            disabled={!configured}
+            onClick={() => window.location.assign('/api/strava/connect')}
+          >
             Conectar con Strava
           </Button>
         )}

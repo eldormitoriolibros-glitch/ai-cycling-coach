@@ -19,9 +19,6 @@ const serverSchema = z
     TOKEN_ENCRYPTION_KEY: z
       .string()
       .refine((v) => Buffer.from(v, 'base64').length === 32, 'must be a base64-encoded 32-byte key'),
-    STRAVA_CLIENT_ID: z.string().min(1),
-    STRAVA_CLIENT_SECRET: z.string().min(1),
-    STRAVA_WEBHOOK_VERIFY_TOKEN: z.string().min(1),
   })
   .superRefine((env, ctx) => {
     if (env.SUPABASE_SERVICE_ROLE_KEY === env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
@@ -76,6 +73,22 @@ const cronSchema = z.object({
   CRON_SECRET: z.string().min(16),
 })
 
+/**
+ * Set this to require an invite code to register. Supabase's own signup must be
+ * turned off in the dashboard as well, otherwise the browser can bypass the
+ * server route and call `auth.signUp` directly.
+ */
+const inviteSchema = z.object({
+  SIGNUP_INVITE_CODE: z.string().min(8),
+})
+
+/** Strava is a backup source; Garmin is the primary one. */
+const stravaSchema = z.object({
+  STRAVA_CLIENT_ID: z.string().min(1),
+  STRAVA_CLIENT_SECRET: z.string().min(1),
+  STRAVA_WEBHOOK_VERIFY_TOKEN: z.string().min(1),
+})
+
 export function geminiEnv() {
   const parsed = geminiSchema.safeParse(process.env)
   return parsed.success ? parsed.data : null
@@ -88,6 +101,16 @@ export function telegramEnv() {
 
 export function cronEnv() {
   const parsed = cronSchema.safeParse(process.env)
+  return parsed.success ? parsed.data : null
+}
+
+export function stravaEnv() {
+  const parsed = stravaSchema.safeParse(process.env)
+  return parsed.success ? parsed.data : null
+}
+
+export function inviteEnv() {
+  const parsed = inviteSchema.safeParse(process.env)
   return parsed.success ? parsed.data : null
 }
 

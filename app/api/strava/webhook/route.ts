@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { safeEqual } from '@/lib/crypto'
-import { serverEnv } from '@/lib/env'
+import { stravaEnv } from '@/lib/env'
 import { deleteActivity, syncSingleActivity } from '@/lib/strava/sync'
 import { findUserByAthleteId } from '@/lib/strava/tokens'
 import { stravaWebhookEventSchema } from '@/lib/strava/types'
@@ -36,7 +36,10 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Bad request' }, { status: 400 })
   }
 
-  if (!safeEqual(token, serverEnv().STRAVA_WEBHOOK_VERIFY_TOKEN)) {
+  const env = stravaEnv()
+  if (!env) return NextResponse.json({ error: 'Strava no está configurado.' }, { status: 503 })
+
+  if (!safeEqual(token, env.STRAVA_WEBHOOK_VERIFY_TOKEN)) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
@@ -74,7 +77,6 @@ export async function POST(request: Request) {
           await reconcileWorkouts(userId)
           const verdict = await checkReplan(userId)
           if (verdict.shouldReplan) {
-            console.log(`Replan recommended for ${userId}:`, verdict.reasons)
             try {
               const proposal = await proposeWeeklyPlan(userId)
               // Lookup telegram chat
