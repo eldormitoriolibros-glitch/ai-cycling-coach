@@ -1,6 +1,11 @@
+'use client'
+
 import Link from 'next/link'
 import { ChevronRight } from 'lucide-react'
+import { Alert } from '@/components/ui'
 import { SessionCard, type PlanSession } from '@/components/plan/SessionCard'
+import { WorkoutStatusActions } from '@/components/plan/WorkoutStatusActions'
+import { useWorkoutStatus } from '@/components/plan/useWorkoutStatus'
 import { looksStrength } from '@/lib/training/split-sessions'
 
 function sessionDone(session: PlanSession): boolean {
@@ -25,6 +30,8 @@ export function TodayPlan({
   sessions: PlanSession[]
   today: string
 }) {
+  const { setStatus, busyId, error, success } = useWorkoutStatus()
+
   if (sessions.length === 0) return null
 
   const ordered = sortTodaySessions(sessions)
@@ -44,12 +51,23 @@ export function TodayPlan({
           <ChevronRight className="h-3.5 w-3.5" />
         </Link>
       </div>
+      {(error || success) && (
+        <div className="mb-3">
+          {error && <Alert variant="error">{error}</Alert>}
+          {success && <Alert variant="success">{success}</Alert>}
+        </div>
+      )}
       <div className="space-y-2">
         {ordered.map((session) => (
           <SessionCard
             key={session.id ?? `${session.workout_type}-${session.title}`}
             session={session}
             defaultOpen={!sessionDone(session)}
+            actions={
+              session.id && session.status === 'scheduled' ? (
+                <WorkoutStatusActions workoutId={session.id} busyId={busyId} onStatus={setStatus} />
+              ) : undefined
+            }
           />
         ))}
       </div>

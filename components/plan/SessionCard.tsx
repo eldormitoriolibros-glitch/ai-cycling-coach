@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { Activity } from 'lucide-react'
 import type { WorkoutStatus } from '@/lib/types/database'
@@ -65,10 +65,21 @@ export function SessionCard({
   actions?: React.ReactNode
 }) {
   const [open, setOpen] = useState(defaultOpen)
+  const statusRef = useRef(session.status)
 
   useEffect(() => {
     if (highlighted) setOpen(true)
   }, [highlighted])
+
+  useEffect(() => {
+    if (
+      statusRef.current !== session.status &&
+      (session.status === 'completed' || session.status === 'skipped')
+    ) {
+      setOpen(false)
+    }
+    statusRef.current = session.status
+  }, [session.status])
   const kind = resolveSessionKind({
     type: session.workout_type,
     title: session.title,
@@ -285,9 +296,10 @@ export function SessionCard({
             </section>
           )}
 
-          {actions && <div className="flex justify-end gap-2 pt-1">{actions}</div>}
         </div>
       )}
+
+      {actions && <div className="flex justify-end gap-2 pt-2">{actions}</div>}
     </div>
   )
 }

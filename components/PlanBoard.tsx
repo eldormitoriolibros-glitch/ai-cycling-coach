@@ -9,6 +9,8 @@ import type { WorkoutStatus } from '@/lib/types/database'
 import { looksCombined, looksStrength, splitCombinedSession } from '@/lib/training/split-sessions'
 import { addDays, eachDay, endOfWeek, formatWeekRange, startOfWeek } from '@/lib/training/dates'
 import { SessionCard } from '@/components/plan/SessionCard'
+import { requestSessionReview, updateWorkoutStatus } from '@/components/plan/mark-workout'
+import { WorkoutStatusActions } from '@/components/plan/WorkoutStatusActions'
 
 export type ScheduledWorkout = {
   id: string
@@ -252,9 +254,10 @@ export function PlanBoard({
 
   const setStatus = async (id: string, status: WorkoutStatus) => {
     setError(null)
-    const { error: updateError } = await supabase.from('workouts').update({ status }).eq('id', id)
-    if (updateError) {
-      setError(updateError.message)
+    try {
+      await updateWorkoutStatus(id, status)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo actualizar la sesión.')
       return
     }
     router.refresh()
@@ -265,11 +268,9 @@ export function PlanBoard({
     setReviewing(id)
     setSuccess('Sesión marcada. El entrenador está analizándola…')
     try {
-      const response = await fetch(`/api/training/workouts/${id}/review`, { method: 'POST' })
-      const body = await response.json().catch(() => ({}))
-      if (!response.ok) throw new Error(body.error ?? 'No se pudo generar la devolución.')
+      const result = await requestSessionReview(id)
       setSuccess(
-        body.sent
+        result.sent
           ? 'Listo: el entrenador te mandó la devolución de la sesión.'
           : 'Sesión marcada como hecha.'
       )
@@ -531,23 +532,7 @@ function WeekAgenda({
                   highlighted={w.id === focusSessionId || date === focusDay}
                   actions={
                     w.status === 'scheduled' && date >= today ? (
-                      <>
-                        <Button
-                          variant="secondary"
-                          loading={reviewing === w.id}
-                          disabled={reviewing !== null}
-                          onClick={() => onStatus(w.id, 'completed')}
-                        >
-                          Hecho
-                        </Button>
-                        <Button
-                          variant="secondary"
-                          disabled={reviewing !== null}
-                          onClick={() => onStatus(w.id, 'skipped')}
-                        >
-                          Saltar
-                        </Button>
-                      </>
+                      <WorkoutStatusActions workoutId={w.id} busyId={reviewing} onStatus={onStatus} />
                     ) : undefined
                   }
                 />
