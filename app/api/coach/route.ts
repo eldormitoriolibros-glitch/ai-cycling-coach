@@ -2,12 +2,17 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { AiNotConfiguredError } from '@/lib/ai/gemini'
 import { askCoach } from '@/lib/coach'
+import { rateLimit } from '@/lib/rate-limit'
 import { createClient } from '@/lib/supabase/server'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
 const bodySchema = z.object({ message: z.string().trim().min(1).max(2000) })
+
+/** The Gemini quota is shared by every athlete, so one chat cannot hog it. */
+const COACH_LIMIT = 20
+const COACH_WINDOW_MS = 10 * 60 * 1000
 
 export async function POST(request: Request) {
   const supabase = createClient()
@@ -17,6 +22,14 @@ export async function POST(request: Request) {
 
   if (!user) {
     return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
+  }
+
+  const limit = rateLimit(`coach:${user.id}`, COACH_LIMIT, COACH_WINDOW_MS)
+  if (!limit.ok) {
+    return NextResponse.json(
+      { error: 'Estás yendo muy rápido. Esperá unos minutos y volvé a escribirle.' },
+      { status: 429, headers: { 'Retry-After': String(limit.retryAfterSeconds) } }
+    )
   }
 
   const parsed = bodySchema.safeParse(await request.json().catch(() => null))

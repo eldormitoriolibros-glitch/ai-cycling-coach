@@ -7,11 +7,12 @@ import { Alert, Button, Field, Input, Card } from '@/components/ui'
 
 type Mode = 'signIn' | 'signUp'
 
-export function AuthForm() {
+export function AuthForm({ inviteOnly = false }: { inviteOnly?: boolean }) {
   const [mode, setMode] = useState<Mode>('signIn')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [name, setName] = useState('')
+  const [inviteCode, setInviteCode] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -42,7 +43,20 @@ export function AuthForm() {
       // Allow signing in with either email or username.
       const identifier = email.trim()
 
-      if (isSignUp) {
+      if (isSignUp && inviteOnly) {
+        // The server checks the invite code and creates the account confirmed,
+        // so the athlete can sign in right away.
+        const res = await fetch('/api/auth/signup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password, name: name.trim(), inviteCode: inviteCode.trim() }),
+        })
+        const body = await res.json().catch(() => ({}))
+        if (!res.ok) throw new Error(body.error ?? 'No se pudo crear la cuenta.')
+
+        const { error: signInError } = await supabase.auth.signInWithPassword({ email, password })
+        if (signInError) throw signInError
+      } else if (isSignUp) {
         const { data, error: signUpError } = await supabase.auth.signUp({
           email,
           password,
@@ -105,6 +119,12 @@ export function AuthForm() {
       {isSignUp && (
         <Field label="Nombre">
           <Input value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" required />
+        </Field>
+      )}
+
+      {isSignUp && inviteOnly && (
+        <Field label="Código de invitación" hint="Te lo pasa quien administra la app.">
+          <Input value={inviteCode} onChange={(e) => setInviteCode(e.target.value)} required />
         </Field>
       )}
 

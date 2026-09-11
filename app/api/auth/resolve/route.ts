@@ -1,12 +1,25 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
+import { clientIp, rateLimit } from '@/lib/rate-limit'
 import { createAdminClient } from '@/lib/supabase/admin'
 
 export const dynamic = 'force-dynamic'
 
 const bodySchema = z.object({ identifier: z.string() })
 
+/** This endpoint maps a username to an email, so it is worth enumerating. */
+const RESOLVE_LIMIT = 10
+const RESOLVE_WINDOW_MS = 10 * 60 * 1000
+
 export async function POST(request: Request) {
+  const limit = rateLimit(`resolve:${clientIp(request)}`, RESOLVE_LIMIT, RESOLVE_WINDOW_MS)
+  if (!limit.ok) {
+    return NextResponse.json(
+      { error: 'Demasiados intentos. Probá de nuevo en unos minutos.' },
+      { status: 429, headers: { 'Retry-After': String(limit.retryAfterSeconds) } }
+    )
+  }
+
   const body = bodySchema.safeParse(await request.json().catch(() => ({})))
   if (!body.success) {
     return NextResponse.json({ error: 'Invalid request' }, { status: 400 })

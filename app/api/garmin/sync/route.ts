@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { safeEqual } from '@/lib/crypto'
 import { cronEnv } from '@/lib/env'
 import { syncGarminData } from '@/lib/garmin/sync-service'
 
@@ -12,7 +13,7 @@ export async function POST(request: Request) {
   // Check if this is a cron call (syncs all users)
   const cronSecret = request.headers.get('x-cron-secret')
   const cron = cronEnv()
-  if (cronSecret && cron && cronSecret === cron.CRON_SECRET) {
+  if (cronSecret && cron && safeEqual(cronSecret, cron.CRON_SECRET)) {
     return handleCronSync()
   }
 

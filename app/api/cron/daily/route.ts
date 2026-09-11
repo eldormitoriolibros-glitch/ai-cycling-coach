@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { safeEqual } from '@/lib/crypto'
 import { sendSessionReview } from '@/lib/coach/session-review'
 import { cronEnv } from '@/lib/env'
+import { syncGarminData } from '@/lib/garmin/sync-service'
 import { syncActivities } from '@/lib/strava/sync'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { addDays, localDateKey } from '@/lib/training/dates'
@@ -17,6 +18,9 @@ const MAX_REVIEWS_PER_USER = 2
 /**
  * Daily job: pull new rides, close out past sessions, and send the coach's
  * review for whatever got completed since the last run.
+ *
+ * Runs for every athlete, whether or not they use Telegram: the reconcile and
+ * the review both matter on the web too.
  *
  * No daily briefing: the athlete gets feedback when a session is done, not a
  * templated nudge every morning.
@@ -36,26 +40,34 @@ export async function GET(request: Request) {
 
   const supabase = createAdminClient()
 
-  const { data: users } = await supabase
-    .from('users')
-    .select('id, timezone, telegram_chat_id')
-    .not('telegram_chat_id', 'is', null)
+  const [{ data: users }, { data: garminUsers }, { data: stravaUsers }] = await Promise.all([
+    supabase.from('users').select('id, timezone'),
+    supabase.from('garmin_connections').select('user_id').eq('sync_enabled', true),
+    supabase.from('strava_connections').select('user_id'),
+  ])
+
+  const hasGarmin = new Set((garminUsers ?? []).map((row) => row.user_id))
+  const hasStrava = new Set((stravaUsers ?? []).map((row) => row.user_id))
 
   const results: Array<{ userId: string; synced?: number; reviews: number; error?: string }> = []
 
   for (const user of users ?? []) {
     try {
-      const { data: connection } = await supabase
-        .from('strava_connections')
-        .select('user_id')
-        .eq('user_id', user.id)
-        .maybeSingle()
+      let synced = 0
+      // Garmin is the primary source; Strava only fills gaps for whoever uses it.
+      if (hasGarmin.has(user.id)) {
+        const garmin = await syncGarminData(user.id).catch(() => null)
+        synced += (garmin?.activitiesCreated ?? 0) + (garmin?.activitiesFromList ?? 0)
+      }
+      if (hasStrava.has(user.id)) {
+        const strava = await syncActivities(user.id, 'cron').catch(() => null)
+        synced += strava?.synced ?? 0
+      }
 
-      const sync = connection ? await syncActivities(user.id, 'cron') : null
       await reconcileWorkouts(user.id)
 
       const reviews = await reviewPendingSessions(user.id, user.timezone || 'UTC')
-      results.push({ userId: user.id, synced: sync?.synced, reviews })
+      results.push({ userId: user.id, synced, reviews })
     } catch (err) {
       results.push({
         userId: user.id,
