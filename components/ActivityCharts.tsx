@@ -482,7 +482,7 @@ export function ActivityCharts({ activity, samples: initialSamples, afterMap }: 
 
       {/* Temperature - Only if available */}
       {hasStreams && realSamples?.some((s) => s.temperature !== null) && (
-        <CollapsibleSection title="Temperatura corporal">
+        <CollapsibleSection title="Temperatura ambiente">
           <ResponsiveContainer width="100%" height={250}>
             <LineChart data={timeSeries}>
               <CartesianGrid strokeDasharray="3 3" />
