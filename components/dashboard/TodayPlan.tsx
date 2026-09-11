@@ -1,6 +1,22 @@
 import Link from 'next/link'
 import { ChevronRight } from 'lucide-react'
 import { SessionCard, type PlanSession } from '@/components/plan/SessionCard'
+import { looksStrength } from '@/lib/training/split-sessions'
+
+function sessionDone(session: PlanSession): boolean {
+  return session.status === 'completed' || session.status === 'skipped'
+}
+
+function sortTodaySessions(sessions: PlanSession[]): PlanSession[] {
+  return [...sessions].sort((a, b) => {
+    const aDone = sessionDone(a) ? 1 : 0
+    const bDone = sessionDone(b) ? 1 : 0
+    if (aDone !== bDone) return aDone - bDone
+    const aStrength = looksStrength(a.title, a.workout_type) ? 1 : 0
+    const bStrength = looksStrength(b.title, b.workout_type) ? 1 : 0
+    return aStrength - bStrength
+  })
+}
 
 export function TodayPlan({
   sessions,
@@ -10,6 +26,8 @@ export function TodayPlan({
   today: string
 }) {
   if (sessions.length === 0) return null
+
+  const ordered = sortTodaySessions(sessions)
 
   return (
     <section className="rounded-xl border border-surface bg-surface p-4 shadow-sm">
@@ -27,11 +45,11 @@ export function TodayPlan({
         </Link>
       </div>
       <div className="space-y-2">
-        {sessions.map((session) => (
+        {ordered.map((session) => (
           <SessionCard
             key={session.id ?? `${session.workout_type}-${session.title}`}
             session={session}
-            defaultOpen={sessions.length === 1}
+            defaultOpen={!sessionDone(session)}
           />
         ))}
       </div>

@@ -20,6 +20,23 @@ describe('compareSession', () => {
     expect(result.label).toBe('sin salida')
   })
 
+  it('does not score a gym session against the ride from that day', () => {
+    const result = compareSession({
+      workoutType: 'strength',
+      title: 'Piernas y core',
+      durationMinutes: 30,
+      targetPower: null,
+      targetHr: null,
+      hasActivity: true,
+      movingSeconds: 118 * 60,
+      avgPower: 180,
+      normalizedPower: 190,
+      intensityFactor: 0.74,
+      avgHr: 139,
+    })
+    expect(result.verdict).toBe('sin_salida')
+  })
+
   it('flags power well below the target as easier', () => {
     const result = compareSession({
       workoutType: 'threshold',

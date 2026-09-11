@@ -4,6 +4,7 @@ import { isTelegramConfigured, sendMessage } from '@/lib/telegram/client'
 import { formatLapsForCoach, type ActivityLapRow, type LapSample } from '@/lib/activities/laps'
 import { loadActivitySamples } from '@/lib/activities/samples'
 import { localDateKey } from '@/lib/training/dates'
+import { looksStrength } from '@/lib/training/split-sessions'
 import { formatDistance, formatDuration } from '@/lib/utils'
 import { buildAthleteContext } from './context'
 import { COACH_DOCTRINE_REVIEW } from './doctrine'
@@ -225,6 +226,8 @@ export async function linkCompletedActivity(userId: string, workoutId: string): 
 
 /** The ride that closed this session: the linked one, or any ride that day. */
 async function findSessionActivity(userId: string, workout: ReviewWorkout, timeZone: string) {
+  if (looksStrength(workout.title, workout.workout_type)) return null
+
   const supabase = createAdminClient()
   const select =
     'id, title, sport_type, start_time, duration_seconds, moving_seconds, distance_meters, avg_power, normalized_power, intensity_factor, avg_hr, max_hr, avg_cadence, elevation_gain_meters, training_load'

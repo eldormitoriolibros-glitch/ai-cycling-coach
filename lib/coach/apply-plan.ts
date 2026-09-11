@@ -1,22 +1,22 @@
 import { splitPlanBlock, type CoachPlan } from '@/lib/training/coach-plan'
+import { pickLastProposedPlan } from '@/lib/coach/proposed-plan'
 import { isPlanConfirm } from '@/lib/training/plan-intent'
 import { coachPlanToDraft, commitWeeklyPlan } from '@/lib/training/plan-service'
 import { createAdminClient } from '@/lib/supabase/admin'
 
 import 'server-only'
 
-/** The last coach message that already proposed a structured plan. */
+/** The last coach proposal, skipping reviews that landed after it. */
 async function lastProposedPlan(userId: string): Promise<CoachPlan | null> {
   const { data } = await createAdminClient()
     .from('coach_messages')
-    .select('message')
+    .select('message, intent')
     .eq('user_id', userId)
     .eq('direction', 'outbound')
     .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle()
+    .limit(10)
 
-  return data?.message ? splitPlanBlock(data.message).plan : null
+  return pickLastProposedPlan(data ?? [])
 }
 
 /**

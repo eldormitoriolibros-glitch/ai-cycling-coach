@@ -1,4 +1,5 @@
 import { parseCompactIntervals } from '@/lib/training/session-prescription'
+import { looksStrength } from '@/lib/training/split-sessions'
 import { TEMPLATES, type SessionKind } from '@/lib/training/planner2'
 
 export type CompareLap = {
@@ -73,7 +74,7 @@ function countWorkLaps(laps: CompareLap[], workMinutes: number): number {
  * should not invent a different verdict.
  */
 export function compareSession(input: SessionCompareInput): SessionCompareResult {
-  if (!input.hasActivity) {
+  if (!input.hasActivity || looksStrength(input.title, input.workoutType)) {
     return { verdict: 'sin_salida', label: LABEL.sin_salida, notes: [] }
   }
 

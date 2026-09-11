@@ -43,35 +43,36 @@ export function WeeklyCalendarStrip() {
 
   return (
     <Card className="p-4 sm:p-5">
-      <div className="mb-3 flex items-center justify-between gap-2">
-        <div>
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div className="min-w-0">
           <h2 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-muted">
             <span aria-hidden className="h-3.5 w-1 rounded-full bg-gradient-to-b from-accent-400 to-accent-600" />
             Esta semana
           </h2>
-          {week && (
-            <>
-              <p className="text-xs text-muted mt-0.5 capitalize">{week.label}</p>
-              {week.totalDistance > 0 && (
-                <p className="text-xs mt-1 tabular-nums">
-                  <span className="font-bold text-accent-600 dark:text-accent-400">
-                    {formatCalendarDistance(week.totalDistance)}
-                  </span>
-                  {week.totalSeconds > 0 && (
-                    <span className="text-muted"> · {formatCalendarDuration(week.totalSeconds)}</span>
-                  )}
-                </p>
-              )}
-            </>
-          )}
+          {week && <p className="mt-0.5 text-xs capitalize text-muted">{week.label}</p>}
         </div>
-        <Link
-          href="/calendar"
-          className="inline-flex items-center gap-1 text-xs font-medium text-accent-600 hover:text-accent-500 dark:text-accent-400 dark:hover:text-accent-300"
-        >
-          Ver calendario
-          <ChevronRight className="h-3.5 w-3.5" />
-        </Link>
+        <div className="shrink-0 text-right">
+          {week && (week.totalDistance > 0 || week.totalSeconds > 0) && (
+            <p className="text-lg font-bold tabular-nums tracking-tight text-foreground sm:text-xl">
+              {week.totalDistance > 0 && (
+                <span className="text-accent-600 dark:text-accent-400">
+                  {formatCalendarDistance(week.totalDistance)}
+                </span>
+              )}
+              {week.totalDistance > 0 && week.totalSeconds > 0 && (
+                <span className="mx-1.5 font-semibold text-muted">·</span>
+              )}
+              {week.totalSeconds > 0 && <span>{formatCalendarDuration(week.totalSeconds)}</span>}
+            </p>
+          )}
+          <Link
+            href="/calendar"
+            className="mt-0.5 inline-flex items-center justify-end gap-1 text-xs font-medium text-accent-600 hover:text-accent-500 dark:text-accent-400 dark:hover:text-accent-300"
+          >
+            Ver calendario
+            <ChevronRight className="h-3.5 w-3.5" />
+          </Link>
+        </div>
       </div>
 
       {loading ? (

@@ -10,6 +10,7 @@ import {
   type WorkoutDraft,
 } from './planner2'
 import { computeReadiness } from '@/lib/training/readiness'
+import { scheduledIdsToReplace } from './plan-replace'
 import { splitCombinedSession } from './split-sessions'
 import { resolveSessionKind, resolveSessionZone } from './session-prescription'
 import { buildBikeSessionDescription } from './workout-blocks'
@@ -337,15 +338,21 @@ export async function coachPlanToDraft(userId: string, plan: CoachPlanInput): Pr
     notes: [],
   }
 
-  const { count } = await supabase
-    .from('workouts')
-    .select('id', { count: 'exact', head: true })
-    .eq('user_id', userId)
-    .eq('status', 'scheduled')
-    .gte('scheduled_date', draft.startDate)
-    .lte('scheduled_date', draft.endDate)
+  const dates = Array.from(new Set(workouts.map((w) => w.scheduled_date)))
+  const { data: existing } = dates.length
+    ? await supabase
+        .from('workouts')
+        .select('id, scheduled_date, workout_type, title, status')
+        .eq('user_id', userId)
+        .eq('status', 'scheduled')
+        .in('scheduled_date', dates)
+    : { data: [] }
 
-  return { draft, rationale: null, replacesExisting: count ?? 0 }
+  return {
+    draft,
+    rationale: null,
+    replacesExisting: scheduledIdsToReplace(existing ?? [], workouts).length,
+  }
 }
 
 async function explain(draft: PlanDraft): Promise<string | null> {
@@ -372,7 +379,7 @@ async function explain(draft: PlanDraft): Promise<string | null> {
   }
 }
 
-/** Replaces still-scheduled sessions in the same window. Completed ones are left alone. */
+/** Replaces still-scheduled sessions of the same kind on the dates in the draft. */
 export async function commitWeeklyPlan(
   userId: string,
   draft: PlanDraft,
@@ -381,16 +388,27 @@ export async function commitWeeklyPlan(
   if (draft.workouts.length === 0) return 0
 
   const supabase = createAdminClient()
+  const dates = Array.from(new Set(draft.workouts.map((w) => w.scheduled_date)))
 
-  const { error: deleteError } = await supabase
+  const { data: existing, error: existingError } = await supabase
     .from('workouts')
-    .delete()
+    .select('id, scheduled_date, workout_type, title, status')
     .eq('user_id', userId)
     .eq('status', 'scheduled')
-    .gte('scheduled_date', draft.startDate)
-    .lte('scheduled_date', draft.endDate)
+    .in('scheduled_date', dates)
 
-  if (deleteError) throw new Error(deleteError.message)
+  if (existingError) throw new Error(existingError.message)
+
+  const replaceIds = scheduledIdsToReplace(existing ?? [], draft.workouts)
+  if (replaceIds.length) {
+    const { error: deleteError } = await supabase
+      .from('workouts')
+      .delete()
+      .eq('user_id', userId)
+      .in('id', replaceIds)
+
+    if (deleteError) throw new Error(deleteError.message)
+  }
 
   const { error } = await supabase.from('workouts').insert(
     draft.workouts.map((w) => ({

@@ -10,6 +10,8 @@ import {
   MODES,
   MODE_KEY,
   applyTheme,
+  isAccentId,
+  resolveThemeMode,
   type AccentId,
   type ThemeMode,
 } from '@/lib/theme'
@@ -21,10 +23,14 @@ export function ThemePicker() {
   const ref = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    const storedMode = localStorage.getItem(MODE_KEY) as ThemeMode | null
-    const storedAccent = localStorage.getItem(ACCENT_KEY) as AccentId | null
-    if (storedMode) setMode(storedMode)
-    if (storedAccent) setAccent(storedAccent)
+    const storedMode = localStorage.getItem(MODE_KEY)
+    const storedAccent = localStorage.getItem(ACCENT_KEY)
+    const resolved = resolveThemeMode(storedMode)
+    const nextAccent = isAccentId(storedAccent) ? storedAccent : DEFAULT_ACCENT
+    setMode(resolved)
+    setAccent(nextAccent)
+    if (storedMode === 'system') localStorage.setItem(MODE_KEY, resolved)
+    applyTheme(resolved, nextAccent)
   }, [])
 
   useEffect(() => {
@@ -68,7 +74,7 @@ export function ThemePicker() {
       {open && (
         <div className="absolute right-0 top-10 z-50 w-60 rounded-xl border border-surface bg-surface p-3 text-foreground shadow-xl">
           <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">Modo</p>
-          <div className="mt-2 grid grid-cols-3 gap-1 rounded-lg border border-surface p-1">
+          <div className="mt-2 grid grid-cols-2 gap-1 rounded-lg border border-surface p-1">
             {MODES.map((m) => (
               <button
                 key={m.id}
