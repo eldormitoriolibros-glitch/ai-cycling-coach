@@ -94,9 +94,10 @@ curl "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/getWebhookInfo"
 `CRON_SECRET` in the Vercel environment; Vercel sends it as
 `Authorization: Bearer <value>` and the route rejects anything else.
 
-For every athlete the job syncs Garmin (and Strava when connected), reconciles
-past sessions against actual rides, and sends the coach's review for whatever
-closed since the last run. There is no morning briefing.
+For every athlete the job syncs Garmin (and Strava when connected) and
+reconciles past sessions against actual rides. Session reviews are not sent
+from the cron: they go out when the athlete marks a session done or asks for
+one. There is no morning briefing.
 
 Limitations on the Hobby plan: **two cron jobs, once per day each**, fired at a
 fixed UTC hour. Pick the hour that suits your timezone. Trigger it by hand with:

@@ -43,7 +43,7 @@ export async function POST(_request: Request, { params }: { params: { id: string
 
   try {
     const sent = await sendSessionReview(user.id, params.id)
-    return NextResponse.json({ sent })
+    return NextResponse.json({ sent: Boolean(sent) })
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'No se pudo generar la devolución.' },

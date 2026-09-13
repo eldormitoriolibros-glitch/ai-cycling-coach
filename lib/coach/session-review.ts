@@ -8,12 +8,13 @@ import { looksStrength } from '@/lib/training/split-sessions'
 import { formatDistance, formatDuration } from '@/lib/utils'
 import { buildAthleteContext } from './context'
 import { COACH_DOCTRINE_REVIEW } from './doctrine'
+import { parseReviewDate } from './review-intent'
 import { compareSession, formatSessionComparison, pinReviewVerdict } from './session-compare'
 import { composeReviewSystemPrompt } from './system-prompt'
 
 import 'server-only'
 
-const REVIEW_RULES = `Sos el entrenador de ciclismo de este atleta. Acaba de marcar una sesión como hecha y le mandás la devolución por Telegram.
+const REVIEW_RULES = `Sos el entrenador de ciclismo de este atleta. Te pidió la devolución de una sesión (o acaba de marcarla como hecha) y se la mandás por Telegram.
 
 Escribí en español rioplatense, texto plano (sin markdown, sin tablas, sin asteriscos), máximo 12 líneas.
 
@@ -90,10 +91,15 @@ function describeExecution(activity: any | null, laps: ActivityLapRow[], samples
  * block when the athlete used the lap button. Sent over Telegram and stored in
  * the chat so the web conversation stays in sync.
  *
- * Idempotent through `workouts.review_sent_at`.
+ * Idempotent through `workouts.review_sent_at`, unless `force` is set because
+ * the athlete asked again.
  */
-export async function sendSessionReview(userId: string, workoutId: string): Promise<boolean> {
-  if (!isAiConfigured()) return false
+export async function sendSessionReview(
+  userId: string,
+  workoutId: string,
+  options?: { force?: boolean }
+): Promise<string | null> {
+  if (!isAiConfigured()) return null
 
   const supabase = createAdminClient()
 
@@ -106,7 +112,8 @@ export async function sendSessionReview(userId: string, workoutId: string): Prom
     .eq('user_id', userId)
     .maybeSingle()
 
-  if (!workout || workout.status !== 'completed' || workout.review_sent_at) return false
+  if (!workout || workout.status !== 'completed') return null
+  if (workout.review_sent_at && !options?.force) return null
 
   const { data: profile } = await supabase
     .from('users')
@@ -171,7 +178,7 @@ export async function sendSessionReview(userId: string, workoutId: string): Prom
     { role: 'user', text: prompt },
   ]).catch(() => null)
 
-  if (!text) return false
+  if (!text) return null
 
   const pinned = pinReviewVerdict(text, comparison)
 
@@ -192,7 +199,61 @@ export async function sendSessionReview(userId: string, workoutId: string): Prom
     await sendMessage(profile.telegram_chat_id, pinned).catch(() => {})
   }
 
-  return true
+  return pinned
+}
+
+export type OnDemandReview = {
+  reply: string
+  /** True when the structured review was generated and already delivered. */
+  delivered: boolean
+}
+
+/**
+ * Review on request. Without a day hint, the latest completed session.
+ * With a day ("ayer", "el domingo"), every completed session that day.
+ */
+export async function requestReviewOnDemand(userId: string, message: string): Promise<OnDemandReview> {
+  const supabase = createAdminClient()
+  const { data: profile } = await supabase.from('users').select('timezone').eq('id', userId).maybeSingle()
+  const timeZone = profile?.timezone || 'UTC'
+  const today = localDateKey(new Date(), timeZone)
+  const date = parseReviewDate(message, today)
+
+  let query = supabase
+    .from('workouts')
+    .select('id')
+    .eq('user_id', userId)
+    .eq('status', 'completed')
+
+  if (date) query = query.eq('scheduled_date', date)
+
+  const { data: workouts } = await query
+    .order('scheduled_date', { ascending: false })
+    .order('workout_type', { ascending: true })
+    .limit(date ? 8 : 1)
+  if (!workouts?.length) {
+    return {
+      delivered: false,
+      reply: date
+        ? `El ${date} no hay ninguna sesión marcada como hecha. Si la hiciste, marcála y te mando la devolución.`
+        : 'No hay ninguna sesión hecha para devolver. Marcá una como hecha o pedime un día concreto (ayer, el domingo).',
+    }
+  }
+
+  const texts: string[] = []
+  for (const workout of workouts) {
+    const text = await sendSessionReview(userId, workout.id, { force: true }).catch(() => null)
+    if (text) texts.push(text)
+  }
+
+  if (!texts.length) {
+    return {
+      delivered: false,
+      reply: 'No pude armar la devolución. Probá de nuevo en un rato.',
+    }
+  }
+
+  return { delivered: true, reply: texts.join('\n\n') }
 }
 
 /**

@@ -46,9 +46,10 @@ export function Alert({
   if (!children) return null
 
   const variants = {
-    error: 'bg-red-50 text-red-800 border-red-200',
-    success: 'bg-green-50 text-green-800 border-green-200',
-    info: 'bg-blue-50 text-blue-800 border-blue-200',
+    error: 'bg-red-50 text-red-800 border-red-200 dark:bg-red-500/10 dark:text-red-300 dark:border-red-500/30',
+    success:
+      'bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-300 dark:border-emerald-500/30',
+    info: 'bg-sky-50 text-sky-800 border-sky-200 dark:bg-sky-500/10 dark:text-sky-300 dark:border-sky-500/30',
   }
 
   return (
@@ -84,7 +85,7 @@ export function Field({
 const controlStyles =
   'w-full rounded-md border border-surface px-3 py-2 text-sm shadow-sm text-foreground placeholder:text-muted ' +
   'focus:outline-none focus:border-accent-500/60 focus:ring-1 focus:ring-accent-500/60 ' +
-  'disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400'
+  'disabled:cursor-not-allowed disabled:bg-background disabled:text-muted'
 
 export function Input({ className, ...props }: React.InputHTMLAttributes<HTMLInputElement>) {
   return (
@@ -129,7 +130,7 @@ export function Card({ className, children }: { className?: string; children: Re
 
 export function Spinner({ label = 'Cargando…' }: { label?: string }) {
   return (
-    <div className="flex items-center gap-2 py-8 text-sm text-slate-500">
+    <div className="flex items-center gap-2 py-8 text-sm text-muted">
       <Loader2 aria-hidden className="h-4 w-4 animate-spin" />
       <span>{label}</span>
     </div>

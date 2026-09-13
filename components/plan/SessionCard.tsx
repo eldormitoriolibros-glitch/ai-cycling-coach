@@ -33,16 +33,16 @@ export type PlanSession = {
 }
 
 const STATUS_LABEL: Record<WorkoutStatus, string> = {
-  scheduled: 'Programado',
+  scheduled: 'Pendiente',
   completed: 'Hecho',
   skipped: 'Saltado',
   moved: 'Movido',
 }
 
 function statusClass(status: WorkoutStatus): string {
-  if (status === 'completed') return 'bg-green-100 text-green-800'
-  if (status === 'skipped') return 'bg-slate-100 text-slate-500'
-  return 'bg-blue-100 text-blue-800'
+  if (status === 'completed') return 'bg-emerald-500/15 text-emerald-800 dark:text-emerald-300'
+  if (status === 'skipped') return 'bg-slate-500/15 text-muted'
+  return 'bg-sky-500/15 text-sky-800 dark:text-sky-300'
 }
 
 function kindLabel(kind: string | null | undefined): string {
@@ -137,7 +137,7 @@ export function SessionCard({
             <span
               className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
                 strength
-                  ? 'bg-amber-100 text-amber-800'
+                  ? 'bg-amber-500/15 text-amber-800 dark:text-amber-300'
                   : 'bg-accent-500/15 text-accent-700 dark:text-accent-300'
               }`}
             >

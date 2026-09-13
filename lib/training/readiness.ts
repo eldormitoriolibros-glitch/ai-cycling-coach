@@ -95,11 +95,11 @@ export function computeReadiness(input: ReadinessInput): ReadinessResult {
   if (dataSources.length === 0 && subs.form !== null) dataSources.push('carga')
   if (dataSources.length === 0) dataSources.push('sin datos')
 
-  let label = 'Aceptable, podés entrenar con moderación'
-  if (score >= 70) label = 'Listo para entrenar fuerte'
-  else if (score >= 50) label = 'Aceptable, podés entrenar con moderación'
-  else if (score >= 35) label = 'Cargado, mejor bajar la intensidad'
-  else label = 'Necesitás descanso'
+  let label = 'Adecuado para lo prescripto, sin sumar intensidad'
+  if (score >= 70) label = 'Margen para trabajo de calidad'
+  else if (score >= 50) label = 'Adecuado para lo prescripto, sin sumar intensidad'
+  else if (score >= 35) label = 'Fatiga elevada; reducir intensidad'
+  else label = 'Fatiga alta; descanso o Z1'
 
   // Add qualifier if only based on training load
   if (dataSources.length === 1 && dataSources[0] === 'carga') {

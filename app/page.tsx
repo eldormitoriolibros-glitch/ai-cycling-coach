@@ -1,38 +1,16 @@
-import Link from 'next/link'
-import {
-  CalendarDays,
-  Clock,
-  HeartPulse,
-  ListChecks,
-  MessageSquare,
-  Plug,
-  User,
-  Zap,
-} from 'lucide-react'
 import { createClient } from '@/lib/supabase/server'
 import { WeeklyCalendarStrip } from '@/components/calendar/WeeklyCalendarStrip'
-import { CollapsibleSection } from '@/components/dashboard/CollapsibleSection'
-import { FormStatusChips, FormStatusMeters } from '@/components/dashboard/FormStatusMeters'
-import { ReadinessMeter } from '@/components/dashboard/ReadinessMeter'
+import { HowAmILine, HowAmISection } from '@/components/dashboard/HowAmISection'
+import { RecoverySection } from '@/components/dashboard/RecoverySection'
 import { TodayPlan } from '@/components/dashboard/TodayPlan'
 import { TrainingLoadDashboard } from '@/components/TrainingLoadDashboard'
 import { assessFormStatus } from '@/lib/training/form-status'
-import { hasDeviceRecovery } from '@/lib/training/readiness'
 import { readinessFrom } from '@/lib/training/readiness-input'
+import { buildRecoverySeries } from '@/lib/training/recovery-series'
+import { todayPlanState } from '@/lib/training/how-am-i'
 import { localDateKey } from '@/lib/training/dates'
 
 export const dynamic = 'force-dynamic'
-
-const SECTIONS = [
-  { href: '/coach', title: 'Entrenador', description: 'Preguntale qué entrenar hoy y por qué.', icon: MessageSquare },
-  { href: '/plan', title: 'Plan', description: 'Proponé y aprobá la semana de entrenamiento.', icon: ListChecks },
-  { href: '/calendar', title: 'Calendario', description: 'Vista mensual, semestral o anual de actividades.', icon: CalendarDays },
-  { href: '/power', title: 'Potencia', description: 'Curva de potencia, FTP estimado y zonas.', icon: Zap },
-  { href: '/recovery', title: 'Recuperación', description: 'Opcional hasta que un reloj mande sueño y HRV.', icon: HeartPulse },
-  { href: '/profile', title: 'Perfil ciclista', description: 'Datos personales, FTP y frecuencias cardíacas.', icon: User },
-  { href: '/availability', title: 'Disponibilidad', description: 'Horas por día para bici y fuerza.', icon: Clock },
-  { href: '/settings', title: 'Conexiones', description: 'Conectá Garmin y Telegram.', icon: Plug },
-]
 
 export default async function HomePage() {
   const supabase = createClient()
@@ -59,16 +37,16 @@ export default async function HomePage() {
       .order('date', { ascending: true }),
     supabase
       .from('recovery_metrics')
-      .select('resting_hr, hrv, stress, soreness, motivation, body_battery_high, spo2_avg')
+      .select('date, source, resting_hr, hrv, stress, soreness, motivation, body_battery_high, spo2_avg')
       .eq('user_id', user!.id)
       .order('date', { ascending: false })
-      .limit(7),
+      .limit(28),
     supabase
       .from('sleep')
-      .select('duration_minutes, sleep_score')
+      .select('date, source, duration_minutes, sleep_score')
       .eq('user_id', user!.id)
       .order('date', { ascending: false })
-      .limit(7),
+      .limit(28),
     supabase
       .from('workouts')
       .select(
@@ -99,6 +77,12 @@ export default async function HomePage() {
     recovery: recovery ?? [],
     sleep: sleep ?? [],
   })
+  const recoveryTrend = buildRecoverySeries({
+    today,
+    days: 14,
+    sleep: sleep ?? [],
+    recovery: recovery ?? [],
+  })
 
   const firstName = (profile?.name || user?.email?.split('@')[0] || 'ciclista').split(' ')[0]
 
@@ -113,67 +97,31 @@ export default async function HomePage() {
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-accent-600 dark:text-accent-400">
             {formatToday(profile?.timezone)}
           </p>
-          <h1 className="mt-1.5 text-2xl font-bold tracking-tight sm:text-3xl">
-            Hola, {firstName}.
-          </h1>
-          <p className="mt-1 text-sm text-muted">
-            {status ? status.summary : 'Sincronizá tus actividades para empezar a ver tu carga.'}
-          </p>
+          <h1 className="mt-1.5 text-2xl font-bold tracking-tight sm:text-3xl">Hola, {firstName}.</h1>
+          <div className="mt-2">
+            <HowAmILine
+              readiness={readiness}
+              status={status}
+              todayPlan={todayPlanState(todayWorkouts ?? [])}
+            />
+          </div>
         </div>
       </section>
 
-      <WeeklyCalendarStrip />
-
-      {status && (
-        <CollapsibleSection
-          title="Estado de forma"
-          summary={<FormStatusChips metrics={[status.form, status.fatigue, status.fitness, status.ramp]} />}
-        >
-          <FormStatusMeters
-            form={status.form}
-            fatigue={status.fatigue}
-            fitness={status.fitness}
-            ramp={status.ramp}
-          />
-          {hasDeviceRecovery(readiness) && (
-            <div className="mt-4">
-              <ReadinessMeter readiness={readiness} />
-            </div>
-          )}
-          <p className="mt-3 text-xs text-muted">
-            Forma y rampa usan rangos típicos de ciclismo. Fitness se compara con tu CTL de los últimos 90 días;
-            fatiga se mide como ATL/CTL. Salen solo de tus salidas (potencia, pulso o duración).
-            {hasDeviceRecovery(readiness)
-              ? ' El readiness suma sueño y recuperación del reloj.'
-              : ' El readiness aparece cuando un reloj mande sueño o HRV; no hace falta cargarlo a mano.'}{' '}
-            Valores calculados por esta app, no por Strava ni Garmin.
-          </p>
-        </CollapsibleSection>
-      )}
-
       <TodayPlan sessions={todayWorkouts ?? []} today={today} />
 
-      <TrainingLoadDashboard days={28} compact showStats={false} collapsible featured="daily" />
+      <RecoverySection
+        today={today}
+        series={recoveryTrend.series}
+        todayPoint={recoveryTrend.todayPoint}
+        loggedToday={recoveryTrend.loggedToday}
+      />
 
-      <CollapsibleSection title="Accesos rápidos">
-        <div className="grid gap-3 sm:grid-cols-2">
-          {SECTIONS.map((section) => (
-            <Link
-              key={section.href}
-              href={section.href}
-              className="group flex items-start gap-3 rounded-xl border border-surface bg-background p-4 shadow-sm transition hover:border-accent-500/40 hover:shadow-md"
-            >
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent-500/10 text-accent-600 transition group-hover:bg-accent-500/20 dark:text-accent-400">
-                <section.icon aria-hidden className="h-[18px] w-[18px]" />
-              </span>
-              <span className="min-w-0">
-                <span className="block font-semibold">{section.title}</span>
-                <span className="block text-sm text-muted">{section.description}</span>
-              </span>
-            </Link>
-          ))}
-        </div>
-      </CollapsibleSection>
+      <HowAmISection readiness={readiness} status={status} />
+
+      <WeeklyCalendarStrip />
+
+      <TrainingLoadDashboard days={28} compact showStats={false} collapsible featured="daily" />
     </div>
   )
 }

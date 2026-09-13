@@ -308,7 +308,7 @@ export function PlanBoard({
             <h2 className="font-bold">
               Propuesta · {proposal.draft.startDate} a {proposal.draft.endDate}
             </h2>
-            <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-slate-700">
+            <span className="rounded-full bg-slate-500/15 px-2 py-1 text-xs font-medium text-muted">
               {EMPHASIS_LABEL[proposal.draft.emphasis]}
             </span>
           </div>

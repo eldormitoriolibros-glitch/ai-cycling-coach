@@ -5,9 +5,13 @@ import { SignOutButton } from '@/components/SignOutButton'
 import { NavLinks } from '@/components/NavLinks'
 import { ThemePicker } from '@/components/ThemePicker'
 
-const LINKS = [
+const DAILY = [
+  { href: '/', label: 'Hoy' },
   { href: '/coach', label: 'Entrenador' },
   { href: '/plan', label: 'Plan' },
+]
+
+const MORE = [
   { href: '/calendar', label: 'Calendario' },
   { href: '/power', label: 'Potencia' },
   { href: '/recovery', label: 'Recuperación' },
@@ -36,7 +40,7 @@ export async function Nav() {
   }
 
   return (
-    <header className="sticky top-0 z-30 border-b border-white/10 bg-slate-950/85 text-white backdrop-blur">
+    <header className="sticky top-0 z-40 overflow-visible border-b border-white/10 bg-slate-950/85 text-white backdrop-blur">
       <div className="h-0.5 w-full bg-gradient-to-r from-accent-400 via-accent-600 to-accent-400" />
       <div className="mx-auto max-w-4xl px-4 sm:px-6">
         <div className="flex h-14 items-center justify-between gap-3">
@@ -59,7 +63,7 @@ export async function Nav() {
             {user && <SignOutButton />}
           </div>
         </div>
-        {user && <NavLinks links={LINKS} />}
+        {user && <NavLinks daily={DAILY} more={MORE} />}
       </div>
     </header>
   )

@@ -4,6 +4,8 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { applyCoachPlanIfRequested, persistCoachOutbound } from './apply-plan'
 import { buildAthleteContext } from './context'
 import { COACH_DOCTRINE } from './doctrine'
+import { wantsSessionReview } from './review-intent'
+import { requestReviewOnDemand } from './session-review'
 import { composeCoachSystemPrompt } from './system-prompt'
 
 import 'server-only'
@@ -81,6 +83,14 @@ export async function askCoach(
     channel,
     message: trimmed,
   })
+
+  if (wantsSessionReview(trimmed)) {
+    const review = await requestReviewOnDemand(userId, trimmed)
+    if (!review.delivered) {
+      await persistCoachOutbound(userId, channel, { reply: review.reply, created: 0, proposed: null })
+    }
+    return review.reply
+  }
 
   const [context, history] = await Promise.all([buildAthleteContext(userId), loadHistory(userId)])
 

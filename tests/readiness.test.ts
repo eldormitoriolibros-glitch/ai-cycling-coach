@@ -19,7 +19,7 @@ describe('readiness', () => {
       spo2: null,
     })
     expect(r.score).toBeGreaterThanOrEqual(60)
-    expect(r.label).toMatch(/Listo|Aceptable|Cargado|Necesit/)
+    expect(r.label).toMatch(/calidad|prescripto|intensidad|descanso|Z1/)
     const lines = formatReadiness(r)
     expect(lines[0]).toContain('readiness:')
   })

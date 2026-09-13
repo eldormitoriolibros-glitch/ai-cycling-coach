@@ -6,7 +6,7 @@ import { rateLimit } from '@/lib/rate-limit'
 import { createClient } from '@/lib/supabase/server'
 
 export const dynamic = 'force-dynamic'
-export const maxDuration = 60
+export const maxDuration = 180
 
 const bodySchema = z.object({ message: z.string().trim().min(1).max(2000) })
 

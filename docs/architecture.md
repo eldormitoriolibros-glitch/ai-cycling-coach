@@ -116,7 +116,9 @@ athlete confirms →  isPlanConfirm() on Telegram, or the button on the web
 prescription and the ride: duration ratio, power or heart rate against target,
 and lap counting when the title encodes intervals like `3x10`. Strength
 sessions are never scored against a ride from the same day. The model is handed
-that verdict and told to copy it.
+that verdict and told to copy it. A review is sent only when the athlete marks
+the session done or asks for it (`/devolucion`, "dame la devolución"); the
+daily cron never pushes one.
 
 ### Why no per-second samples for FTP
 

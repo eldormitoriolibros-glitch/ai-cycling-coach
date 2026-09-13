@@ -98,6 +98,7 @@ Bot commands:
 | `/semana` | This week's plan |
 | `/bici` | Marks today's ride done, pulls it from Garmin and sends the review |
 | `/fuerza` | Marks today's strength session done |
+| `/devolucion` | Reviews the last completed session (or a day you name) |
 | `/vincular <code>` | Links the chat to your account |
 | `/ayuda` | Help |
 
@@ -112,9 +113,10 @@ card disappears; everything else keeps working.
 ### 8. Daily job (optional)
 
 Once deployed, [`vercel.json`](vercel.json) runs `/api/cron/daily`: for every
-athlete it syncs Garmin (and Strava if connected), marks past sessions done or
-skipped based on whether they actually rode, and sends the coach's review for
-whatever closed since the last run. Set `CRON_SECRET` for it to run:
+athlete it syncs Garmin (and Strava if connected) and marks past sessions done
+or skipped based on whether they actually rode. It does not send session
+reviews: those go out when you mark a session done or ask for one. Set
+`CRON_SECRET` for it to run:
 
 ```powershell
 node -e "console.log(require('crypto').randomBytes(24).toString('base64url'))"
@@ -161,7 +163,7 @@ still an enumeration surface. Drop username login if that matters to you.
 ```
 app/
   api/coach/         Coach chat endpoint
-  api/cron/daily/    Nightly sync + reconcile + session reviews
+  api/cron/daily/    Nightly sync + reconcile
   api/garmin/        Connect, sync, archive import, backfill, rebuild
   api/strava/        OAuth, manual sync, disconnect, webhook (optional)
   api/telegram/      Link-code issuing, bot webhook

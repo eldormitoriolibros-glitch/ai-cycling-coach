@@ -82,7 +82,7 @@ export function StravaCard({
         </div>
         <span
           className={`rounded-full px-2 py-1 text-xs font-medium ${
-            connected ? 'bg-green-100 text-green-800' : 'bg-slate-100 text-slate-600'
+            connected ? 'bg-emerald-500/15 text-emerald-800 dark:text-emerald-300' : 'bg-slate-500/15 text-muted'
           }`}
         >
           {connected ? (status ?? 'connected') : 'sin conectar'}

@@ -61,7 +61,7 @@ export function TelegramCard({
         </div>
         <span
           className={`rounded-full px-2 py-1 text-xs font-medium ${
-            linked ? 'bg-green-100 text-green-800' : 'bg-slate-100 text-slate-600'
+            linked ? 'bg-emerald-500/15 text-emerald-800 dark:text-emerald-300' : 'bg-slate-500/15 text-muted'
           }`}
         >
           {linked ? 'vinculado' : 'sin vincular'}

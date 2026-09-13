@@ -31,15 +31,15 @@ const markdownComponents = {
       <table className="w-full border-collapse text-xs">{children}</table>
     </div>
   ),
-  thead: ({ children }: { children?: React.ReactNode }) => <thead className="bg-slate-200">{children}</thead>,
+  thead: ({ children }: { children?: React.ReactNode }) => <thead className="bg-background">{children}</thead>,
   th: ({ children }: { children?: React.ReactNode }) => (
-    <th className="border border-slate-300 px-2 py-1 text-left font-semibold">{children}</th>
+    <th className="border border-surface px-2 py-1 text-left font-semibold">{children}</th>
   ),
-  td: ({ children }: { children?: React.ReactNode }) => <td className="border border-slate-300 px-2 py-1">{children}</td>,
+  td: ({ children }: { children?: React.ReactNode }) => <td className="border border-surface px-2 py-1">{children}</td>,
   code: ({ children }: { children?: React.ReactNode }) => {
     const raw = String(children ?? '')
     if (/^\s*\{[\s\S]*"workouts"\s*:/.test(raw)) return null
-    return <code className="rounded bg-slate-200 px-1 py-0.5 text-[0.85em]">{children}</code>
+    return <code className="rounded bg-background px-1 py-0.5 text-[0.85em]">{children}</code>
   },
 }
 
@@ -178,14 +178,14 @@ export function CoachChat({ initialMessages }: { initialMessages: CoachMessage[]
       <div className="flex-1 space-y-3 overflow-y-auto pr-1">
         {messages.length === 0 && (
           <div className="space-y-3 py-8 text-center">
-            <p className="text-sm text-slate-500">Preguntale lo que quieras sobre tu entrenamiento.</p>
+            <p className="text-sm text-muted">Preguntale lo que quieras sobre tu entrenamiento.</p>
             <div className="flex flex-wrap justify-center gap-2">
               {SUGGESTIONS.map((s) => (
                 <button
                   key={s}
                   type="button"
                   onClick={() => send(s)}
-                  className="rounded-full border border-slate-300 px-3 py-1 text-xs text-slate-600 hover:bg-slate-50"
+                  className="rounded-full border border-surface px-3 py-1 text-xs text-muted hover:bg-background hover:text-foreground"
                 >
                   {s}
                 </button>
@@ -204,7 +204,7 @@ export function CoachChat({ initialMessages }: { initialMessages: CoachMessage[]
               <div
                 className={`max-w-[85%] sm:max-w-[70%] rounded-lg px-3 py-2 text-sm break-words ${
                   isUser
-                    ? 'whitespace-pre-wrap bg-primary text-white'
+                    ? 'whitespace-pre-wrap bg-accent-600 text-white'
                     : 'bg-surface text-muted'
                 }`}
                 style={isUser ? { boxShadow: '0 2px 6px rgba(0,0,0,0.3)' } : undefined}
@@ -238,7 +238,7 @@ export function CoachChat({ initialMessages }: { initialMessages: CoachMessage[]
           )
         })}
 
-        {sending && <p className="text-xs text-slate-400">El entrenador está pensando…</p>}
+        {sending && <p className="text-xs text-muted">El entrenador está pensando…</p>}
         <div ref={endRef} />
       </div>
 

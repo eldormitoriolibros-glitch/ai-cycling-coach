@@ -4,7 +4,8 @@ import { telegramEnv } from '@/lib/env'
 import { askCoach } from '@/lib/coach'
 import { buildDailyNudge } from '@/lib/coach/nudge'
 import { markTodaySessionDone, type MarkDoneResult, type SessionScope } from '@/lib/coach/mark-done'
-import { sendSessionReview } from '@/lib/coach/session-review'
+import { requestReviewOnDemand, sendSessionReview } from '@/lib/coach/session-review'
+import { wantsSessionReview } from '@/lib/coach/review-intent'
 import { formatWeekAgenda } from '@/lib/coach/week-agenda'
 import { sendMessage, type TelegramUpdate } from '@/lib/telegram/client'
 import { createAdminClient } from '@/lib/supabase/admin'
@@ -20,7 +21,8 @@ const HELP = [
   'Escribime lo que quieras, por ejemplo: "¿qué entreno hoy?".',
   'Comandos: /hoy la sesión del día. /semana el plan de esta semana.',
   '/bici marca la sesión de bici de hoy como hecha. /fuerza, la de fuerza.',
-  'Cuando marcás una sesión te mando la devolución completa.',
+  '/devolucion la última sesión hecha (o "dame la devolución de ayer").',
+  'La devolución te la mando solo cuando marcás una sesión como hecha o cuando la pedís.',
   'Para cambiar el plan, pedímelo (ej. "pasá el umbral al jueves") y después confirmá con un sí.',
   '',
   'Para vincular esta cuenta, generá un código en la web (Conexiones) y mandámelo así:',
@@ -104,6 +106,12 @@ export async function POST(request: Request) {
 
     if (text === '/semana') {
       await sendMessage(chatId, await formatWeekAgenda(linked.id, linked.timezone || 'UTC'))
+      return NextResponse.json({ ok: true })
+    }
+
+    if (wantsSessionReview(text)) {
+      const review = await requestReviewOnDemand(linked.id, text)
+      if (!review.delivered) await sendMessage(chatId, review.reply)
       return NextResponse.json({ ok: true })
     }
 
