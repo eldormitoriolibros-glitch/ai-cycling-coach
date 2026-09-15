@@ -25,7 +25,34 @@ describe('parseWorkoutBlocks', () => {
 
   it('returns a default strength table for generic descriptions', () => {
     expect(strengthExercises('Sesión de fuerza, independiente de la bici.')).toHaveLength(6)
-    expect(strengthExercises('Circuito de sentadillas, fondos y plancha 3x12')).toEqual([])
+  })
+
+  it('turns a listed circuit into specific rows with the stated scheme', () => {
+    const rows = strengthExercises('Circuito de sentadillas, fondos y plancha 3x12')
+    expect(rows.map((r) => r.exercise)).toEqual([
+      'Movilidad de entrada',
+      'Sentadillas',
+      'Fondos',
+      'Plancha',
+      'Vuelta: movilidad suave',
+    ])
+    expect(rows.find((r) => r.exercise === 'Sentadillas')).toMatchObject({ sets: '3', reps: '12' })
+  })
+
+  it('uses an upper-body table when the session is torso/core, not the leg template', () => {
+    const rows = strengthExercises(
+      'Rutina de torso y zona media: remos con banda/mancuerna, empujes, spinales y core anti-rotación.',
+      'Fuerza superior y core'
+    )
+    expect(rows.map((r) => r.exercise)).toEqual([
+      'Movilidad de entrada',
+      'Remos con banda/mancuerna',
+      'Empujes',
+      'Spinales',
+      'Core anti-rotación',
+      'Vuelta: movilidad suave',
+    ])
+    expect(rows.some((r) => /sentadilla|peso muerto/i.test(r.exercise))).toBe(false)
   })
 
   it('always includes warmup and cooldown in a Z2 description', () => {
@@ -65,6 +92,32 @@ describe('parseWorkoutBlocks', () => {
     expect(blocks.map((b) => b.label)).toContain('Intervalos')
     expect(blocks.find((b) => b.label === 'Intervalos')).toMatchObject({ repeats: 3, minutes: 10, intensity: 'Z4' })
     expect(blocks.some((b) => b.label === 'Bloque principal' && b.intensity === 'Z2')).toBe(false)
+  })
+
+  it('keeps Z4 spikes and the Z2 continuous block from the same prescription', () => {
+    const blocks = blocksForBikeSession({
+      title: 'Bici con chispazos',
+      description:
+        '15 min de entrada en calor Z1-Z2. 3 pasadas de 1 min en Z4 a cadencia alta (>100 rpm) recuperando 3 min en Z1 entre cada una. 33 min continuos en Z2 suave. 10 min de vuelta a la calma en Z1.',
+      minutes: 60,
+      zone: 'Z2',
+      kind: 'endurance',
+    })
+    expect(blocks.find((b) => b.label === 'Entrada en calor')).toMatchObject({ minutes: 15, intensity: 'Z1-Z2' })
+    expect(blocks.find((b) => b.label === 'Intervalos')).toMatchObject({
+      repeats: 3,
+      minutes: 1,
+      intensity: 'Z4',
+    })
+    expect(blocks.find((b) => b.label === 'Recuperación entre series')).toMatchObject({
+      minutes: 3,
+      intensity: 'Z1',
+    })
+    expect(blocks.find((b) => b.label === 'Bloque principal')).toMatchObject({
+      minutes: 33,
+      intensity: 'Z2',
+    })
+    expect(blocks.find((b) => b.label === 'Vuelta a la calma')).toMatchObject({ minutes: 10, intensity: 'Z1' })
   })
 })
 

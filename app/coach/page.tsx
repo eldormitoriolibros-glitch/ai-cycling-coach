@@ -2,6 +2,7 @@ import { CoachChat } from '@/components/CoachChat'
 import { Alert } from '@/components/ui'
 import { isAiConfigured } from '@/lib/ai/gemini'
 import { createClient } from '@/lib/supabase/server'
+import { isCycleBriefComplete } from '@/lib/training/coach-brief'
 
 export const dynamic = 'force-dynamic'
 
@@ -22,7 +23,11 @@ export default async function CoachPage({
       .eq('user_id', user!.id)
       .order('created_at', { ascending: false })
       .limit(50),
-    supabase.from('training_briefs').select('user_id').eq('user_id', user!.id).maybeSingle(),
+    supabase
+      .from('training_briefs')
+      .select('include_strength, strength_equipment, recurring_issues')
+      .eq('user_id', user!.id)
+      .maybeSingle(),
   ])
 
   return (
@@ -39,7 +44,7 @@ export default async function CoachPage({
       <CoachChat
         initialMessages={(messages ?? []).reverse()}
         startPropose={searchParams?.start === 'propose'}
-        hasBrief={Boolean(brief)}
+        hasBrief={isCycleBriefComplete(brief)}
       />
     </div>
   )

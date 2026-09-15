@@ -117,6 +117,8 @@ type TrainingBriefRow = {
   target_date: string | null
   horizon_weeks: 4 | 8 | 12
   include_strength: boolean
+  strength_equipment: 'gym' | 'home' | 'bodyweight' | null
+  recurring_issues: string | null
   notes: string | null
   created_at: string
   updated_at: string

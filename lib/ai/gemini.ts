@@ -1,4 +1,5 @@
 import { geminiEnv } from '@/lib/env'
+import { stitchContinuation, shouldContinueReply } from '@/lib/ai/reply-complete'
 
 import 'server-only'
 
@@ -7,10 +8,13 @@ const API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models'
 /**
  * Current Gemini flash models are reasoning models: they spend hidden "thinking"
  * tokens before emitting text, and those count against maxOutputTokens. Roughly
- * 500 are typical, so the budget has to leave room for them or the response
- * comes back empty.
+ * 500–2000 are typical. A week table plus the hidden `plan` JSON needs more
+ * than 2048 or the athlete sees a cut-off "| Día |".
  */
-const DEFAULT_MAX_OUTPUT_TOKENS = 2048
+const DEFAULT_MAX_OUTPUT_TOKENS = 8192
+const MAX_CONTINUATIONS = 3
+const CONTINUE_PROMPT =
+  'Seguí exactamente desde donde cortaste, sin repetir lo ya escrito. Completá la tabla (una fila por día, con saltos de línea) y el bloque plan/brief si quedó a medias.'
 
 export type ChatTurn = { role: 'user' | 'model'; text: string }
 
@@ -27,7 +31,7 @@ export function isAiConfigured(): boolean {
 
 type GeminiResponse = {
   candidates?: Array<{
-    content?: { parts?: Array<{ text?: string }> }
+    content?: { parts?: Array<{ text?: string; thought?: boolean }> }
     finishReason?: string
   }>
   promptFeedback?: { blockReason?: string }
@@ -35,7 +39,7 @@ type GeminiResponse = {
 }
 
 type CallResult =
-  | { ok: true; text: string }
+  | { ok: true; text: string; finishReason?: string }
   | { ok: false; status: number; message: string; suggestedModel?: string }
 
 /**
@@ -59,8 +63,16 @@ async function callModel(
   apiKey: string,
   systemInstruction: string,
   history: ChatTurn[],
-  options: { temperature?: number; maxOutputTokens?: number }
+  options: { temperature?: number; maxOutputTokens?: number; thinkingLevel?: 'minimal' | 'low' | 'none' }
 ): Promise<CallResult> {
+  const generationConfig: Record<string, unknown> = {
+    temperature: options.temperature ?? 0.6,
+    maxOutputTokens: options.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
+  }
+  if (options.thinkingLevel && options.thinkingLevel !== 'none') {
+    generationConfig.thinkingConfig = { thinkingLevel: options.thinkingLevel }
+  }
+
   const response = await fetch(`${API_BASE}/${model}:generateContent?key=${encodeURIComponent(apiKey)}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -68,10 +80,7 @@ async function callModel(
     body: JSON.stringify({
       systemInstruction: { parts: [{ text: systemInstruction }] },
       contents: history.map((turn) => ({ role: turn.role, parts: [{ text: turn.text }] })),
-      generationConfig: {
-        temperature: options.temperature ?? 0.6,
-        maxOutputTokens: options.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
-      },
+      generationConfig,
     }),
   })
 
@@ -98,7 +107,8 @@ async function callModel(
 
   const candidate = body?.candidates?.[0]
   const text = candidate?.content?.parts
-    ?.map((part) => part.text ?? '')
+    ?.filter((part) => !part.thought)
+    .map((part) => part.text ?? '')
     .join('')
     .trim()
 
@@ -110,7 +120,7 @@ async function callModel(
     return { ok: false, status: 200, message: `Gemini devolvió una respuesta vacía (${reason}).` }
   }
 
-  return { ok: true, text }
+  return { ok: true, text, finishReason: candidate?.finishReason }
 }
 
 /**
@@ -132,19 +142,51 @@ export async function generateReply(
   const candidates = options.models?.length ? options.models : [env.GEMINI_MODEL]
   const failures: Extract<CallResult, { ok: false }>[] = []
 
+  const tokenBudget = options.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS
+
+  const continueIfCut = async (model: string, partial: Extract<CallResult, { ok: true }>) => {
+    let text = partial.text
+    let reason = partial.finishReason
+    for (let i = 0; i < MAX_CONTINUATIONS; i++) {
+      if (!shouldContinueReply(reason, text)) return text
+      const continued = await callModel(model, env.GEMINI_API_KEY, systemInstruction, [
+        ...history,
+        { role: 'model', text },
+        { role: 'user', text: CONTINUE_PROMPT },
+      ], { ...options, maxOutputTokens: tokenBudget, thinkingLevel: 'low' })
+      if (!continued.ok) return text
+      text = stitchContinuation(text, continued.text)
+      reason = continued.finishReason
+    }
+    return text
+  }
+
   for (const model of candidates) {
-    let result = await callModel(model, env.GEMINI_API_KEY, systemInstruction, history, options)
+    let result = await callModel(model, env.GEMINI_API_KEY, systemInstruction, history, {
+      ...options,
+      thinkingLevel: 'low',
+    })
+
+    if (!result.ok && result.status === 400 && /thinking/i.test(result.message)) {
+      result = await callModel(model, env.GEMINI_API_KEY, systemInstruction, history, {
+        ...options,
+        thinkingLevel: 'none',
+      })
+    }
 
     if (!result.ok && result.suggestedModel) {
-      const retry = await callModel(result.suggestedModel, env.GEMINI_API_KEY, systemInstruction, history, options)
+      const retry = await callModel(result.suggestedModel, env.GEMINI_API_KEY, systemInstruction, history, {
+        ...options,
+        thinkingLevel: 'low',
+      })
       if (retry.ok) {
         console.warn(`Gemini model "${model}" is retired; used "${result.suggestedModel}" instead.`)
-        return retry.text
+        return continueIfCut(result.suggestedModel, retry)
       }
       result = retry
     }
 
-    if (result.ok) return result.text
+    if (result.ok) return continueIfCut(model, result)
     failures.push(result)
   }
 

@@ -93,7 +93,7 @@ export function SessionCard({
     kind,
   })
   const strength = looksStrength(session.title, kind)
-  const strengthRows = strength ? strengthExercises(session.description) : []
+  const strengthRows = strength ? strengthExercises(session.description, session.title) : []
   const tip = considerationsFor(kind)
   const fromTitle = expandIntervalShorthand(session.title, session.description)
   const description =

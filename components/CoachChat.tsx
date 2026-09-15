@@ -62,6 +62,11 @@ const INTAKE_CHIPS = [
   { label: 'Hasta una fecha', text: 'El horizonte es hasta una fecha; te la digo.' },
   { label: 'Con fuerza', text: 'Sí, incluí sesiones de fuerza junto con la bici.' },
   { label: 'Solo bici', text: 'No, solo bici. Sin fuerza.' },
+  { label: 'Gimnasio', text: 'Para fuerza tengo acceso a gimnasio.' },
+  { label: 'Casa (pesas/bandas)', text: 'Para fuerza entreno en casa, con bandas o pesas.' },
+  { label: 'Peso corporal', text: 'Para fuerza solo peso corporal, sin gimnasio ni pesas.' },
+  { label: 'Sin molestias', text: 'No tengo molestias recurrentes.' },
+  { label: 'Tengo molestias', text: 'Tengo una molestia recurrente; te cuento cuál.' },
 ]
 
 let proposeIntakeLock = false
@@ -258,7 +263,7 @@ export function CoachChat({
                 className={`max-w-[85%] sm:max-w-[70%] rounded-lg px-3 py-2 text-sm break-words ${
                   isUser
                     ? 'whitespace-pre-wrap bg-accent-600 text-white'
-                    : 'bg-surface text-muted'
+                    : 'overflow-x-auto whitespace-pre-wrap bg-surface text-muted'
                 }`}
                 style={isUser ? { boxShadow: '0 2px 6px rgba(0,0,0,0.3)' } : undefined}
               >

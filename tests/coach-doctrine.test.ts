@@ -79,6 +79,8 @@ describe('doctrine copy', () => {
     expect(COACH_DOCTRINE).toMatch(/semanas sueltas/)
     expect(COACH_DOCTRINE).toMatch(/dentro del tiempo total/i)
     expect(COACH_DOCTRINE).toMatch(/[Ss]in reloj/)
+    expect(COACH_DOCTRINE).toMatch(/implementos/)
+    expect(COACH_DOCTRINE).toMatch(/Molestias/)
   })
 
   it('does not name third-party coaching brands or 7-zone scales', () => {

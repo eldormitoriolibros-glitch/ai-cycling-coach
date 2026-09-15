@@ -21,6 +21,21 @@ const DEFAULT_STRENGTH: StrengthExercise[] = [
   { exercise: 'Vuelta: movilidad suave', sets: '1', reps: '5 min', note: 'Cierre, sin fatiga' },
 ]
 
+const DEFAULT_UPPER: StrengthExercise[] = [
+  { exercise: 'Movilidad de hombros y tórax', sets: '1', reps: '5 min', note: 'Sin carga, rango amplio' },
+  { exercise: 'Remo (banda o mancuerna)', sets: '3', reps: '8–12', note: 'Escápula baja, sin encoger hombros' },
+  { exercise: 'Empuje (press o fondos)', sets: '3', reps: '8–12', note: 'Sin bloquear codos de golpe' },
+  { exercise: 'Espinales / face pull', sets: '2–3', reps: '10–15', note: 'Espalda neutra, sin hiperextender' },
+  { exercise: 'Core anti-rotación (Pallof o plancha lateral)', sets: '3', reps: '8–12 / lado', note: 'Pelvis neutra, sin apnea' },
+  { exercise: 'Vuelta: movilidad suave', sets: '1', reps: '3 min', note: 'Cierre, sin fatiga' },
+]
+
+const GENERIC_STRENGTH =
+  /trabajo de fuerza|fuera de la bici|sesi[oó]n de fuerza|independiente de la bici|fuerza liviana/i
+const UPPER_HINT =
+  /torso|superior|zona media|upper|push[\s-]?pull|remos?|empujes?|press|spinal|anti-?rotaci|sin cargar las piernas|no (?:cargar|trabajar) (?:las )?piernas/i
+const LOWER_HINT = /piernas?|sentadilla|squat|peso muerto|rdl|prensa|hip hinge/i
+
 import {
   expandIntervalShorthand,
   looksGenericEnduranceText,
@@ -188,13 +203,90 @@ export function commitSessionDescription(input: {
   }).slice(0, 1000)
 }
 
-/** Default strength table when the plan only has a generic "fuerza/core" note. */
-export function strengthExercises(description: string | null | undefined): StrengthExercise[] {
-  const text = (description ?? '').toLowerCase()
-  const generic =
-    !text.trim() ||
-    /trabajo de fuerza|fuera de la bici|sesión de fuerza|independiente de la bici/.test(text)
-  return generic ? DEFAULT_STRENGTH : []
+/** Strength table: named exercises from the prescription, or a template that matches the intent. */
+export function strengthExercises(
+  description: string | null | undefined,
+  title?: string | null
+): StrengthExercise[] {
+  const blob = [title, description].filter(Boolean).join('. ').replace(/\s+/g, ' ').trim()
+  const named = parseNamedStrengthExercises(blob)
+  if (named.length >= 2) return wrapStrengthSession(named, parseStrengthScheme(blob))
+
+  const text = blob.toLowerCase()
+  if (UPPER_HINT.test(text) && !LOWER_HINT.test(text)) return DEFAULT_UPPER
+  if (!text.trim() || GENERIC_STRENGTH.test(text)) return DEFAULT_STRENGTH
+  if (UPPER_HINT.test(text)) return DEFAULT_UPPER
+  return DEFAULT_STRENGTH
+}
+
+function parseStrengthScheme(text: string): { sets: string; reps: string } | null {
+  const match = text.match(/(\d+)\s*[x×]\s*(\d+(?:\s*[–-]\s*\d+)?)/i)
+  if (!match) return null
+  return { sets: match[1], reps: match[2].replace(/\s+/g, '') }
+}
+
+function parseNamedStrengthExercises(text: string): string[] {
+  const withoutScheme = text.replace(/\d+\s*[x×]\s*\d+(?:\s*[–-]\s*\d+)?/gi, ' ').replace(/\s+/g, ' ').trim()
+  const colon = withoutScheme.lastIndexOf(':')
+  let body = colon >= 0 ? withoutScheme.slice(colon + 1) : withoutScheme
+  if (colon < 0) {
+    const lead = withoutScheme.match(/^(?:rutina|circuito|trabajo|sesi[oó]n)\s+de\s+(.+)$/i)
+    if (lead) body = lead[1]
+  }
+  body = body.replace(/[.]+$/g, '').trim()
+  if (!body) return []
+
+  return body
+    .split(/\s*(?:,|;|\s+y\s+)\s*/i)
+    .map((part) => part.trim())
+    .filter((part) => part.length >= 3)
+    .filter((part) => !/^(minutos?|series?|vueltas?|calidad|carga|rutina|circuito|fuerza|torso|zona media|independiente.*|la bici)$/i.test(part))
+    .filter((part) => !GENERIC_STRENGTH.test(part))
+}
+
+function wrapStrengthSession(
+  names: string[],
+  scheme: { sets: string; reps: string } | null
+): StrengthExercise[] {
+  const work = names.map((name) => {
+    const core = looksCoreExercise(name)
+    return {
+      exercise: capitalizeExercise(name),
+      sets: scheme?.sets ?? '3',
+      reps: scheme?.reps ?? (core ? '20–40 s' : '8–12'),
+      note: noteForExercise(name),
+    }
+  })
+  const hasWarmup = work.some((row) => /movilidad|entrada|calentamiento/i.test(row.exercise))
+  const hasCooldown = work.some((row) => /vuelta|cierre|enfriamiento/i.test(row.exercise))
+  return [
+    ...(hasWarmup
+      ? []
+      : [{ exercise: 'Movilidad de entrada', sets: '1', reps: '5 min', note: 'Hombros, tórax, cadera' }]),
+    ...work,
+    ...(hasCooldown
+      ? []
+      : [{ exercise: 'Vuelta: movilidad suave', sets: '1', reps: '3 min', note: 'Cierre, sin fatiga' }]),
+  ]
+}
+
+function looksCoreExercise(name: string): boolean {
+  return /core|plancha|dead\s*bug|anti-?rot|pallof|hollow/i.test(name)
+}
+
+function capitalizeExercise(name: string): string {
+  const trimmed = name.trim().replace(/\s+/g, ' ')
+  return trimmed.charAt(0).toUpperCase() + trimmed.slice(1)
+}
+
+function noteForExercise(name: string): string {
+  if (/remo/i.test(name)) return 'Tirón, escápula baja'
+  if (/empuje|press|fondos/i.test(name)) return 'Sin bloquear codos de golpe'
+  if (/spinal|face\s*pull/i.test(name)) return 'Espalda neutra, sin hiperextender'
+  if (/anti-?rot|pallof|core|plancha|dead\s*bug/i.test(name)) return 'Pelvis neutra, sin apnea'
+  if (/sentadilla|prensa|squat/i.test(name)) return 'Controlado, rango completo'
+  if (/muerto|hinge|rdl/i.test(name)) return 'Espalda neutra'
+  return 'Calidad antes que carga'
 }
 
 /**
@@ -216,9 +308,13 @@ export function blocksForBikeSession(input: {
   const text = [title, input.description ?? ''].filter(Boolean).join('. ').replace(/\s+/g, ' ').trim()
   const blocks: WorkoutBlock[] = []
   const compact = parseCompactIntervals(title) ?? parseCompactIntervals(input.description)
+  const stated = parseStatedIntervals(text)
+  const work = stated ?? (compact
+    ? { repeats: compact.repeats, minutes: compact.minutes, intensity: compact.intensity }
+    : null)
 
   const warmup = text.match(
-    /(\d+)\s*min(?:utos)?\s+de\s+entrada(?:\s+en\s+calor)?(?:\s+progresiva)?(?:\s+en\s+(Z[1-5](?:\s*[–-]\s*Z[1-5])?))?/i
+    /(\d+)\s*min(?:utos)?\s+de\s+entrada(?:\s+en\s+calor)?(?:\s+progresiva)?(?:(?:\s+en)?\s+(Z[1-5](?:\s*[–-]\s*Z[1-5])?))?/i
   )
   if (warmup) {
     blocks.push({
@@ -229,51 +325,30 @@ export function blocksForBikeSession(input: {
     })
   }
 
-  const intervals = text.match(
-    /(\d+)\s*(?:bloques|series)\s+de\s+(\d+)\s*min(?:utos)?(?:\s+(?:en\s+|al\s+)?(Z[1-5]|FTP|umbral|fuerte|tempo|sweet\s*spot))?/i
-  )
-  if (intervals) {
+  if (work) {
     blocks.push({
       label: 'Intervalos',
-      minutes: Number(intervals[2]),
-      repeats: Number(intervals[1]),
-      intensity: normalizeIntensity(intervals[3]),
+      minutes: work.minutes,
+      repeats: work.repeats,
+      intensity: work.intensity,
     })
-  } else if (compact) {
-    blocks.push({
-      label: 'Intervalos',
-      minutes: compact.minutes,
-      repeats: compact.repeats,
-      intensity: compact.intensity,
-    })
+    const recovery = parseIntervalRecovery(text, work.repeats, compact && !stated ? compact : null)
+    if (recovery) blocks.push(recovery)
   }
 
-  const recovery = text.match(
-    /(\d+)\s*min(?:utos)?\s+suaves(?:\s+entre(?:\s+(?:medio|cada\s+uno))?)?/i
-  )
-  if (intervals && recovery) {
+  const explicitSteady = parseExplicitSteady(text)
+  if (explicitSteady) {
     blocks.push({
-      label: 'Recuperación entre series',
-      minutes: Number(recovery[1]),
-      repeats: Number(intervals[1]) > 1 ? Number(intervals[1]) - 1 : null,
-      intensity: 'Z1–Z2',
+      label: 'Bloque principal',
+      minutes: explicitSteady.minutes,
+      repeats: null,
+      intensity: explicitSteady.intensity,
     })
-  } else if (compact) {
-    blocks.push({
-      label: 'Recuperación entre series',
-      minutes: compact.restExplicit ? compact.restMinutes : (parseRestMinutes(text) ?? compact.restMinutes),
-      repeats: compact.repeats > 1 ? compact.repeats - 1 : null,
-      intensity: 'Z1–Z2',
-    })
-  }
-
-  const steady = text.match(
-    /(?:ritmo constante en |después,?\s+(\d+)\s*min(?:utos)?\s+en\s+)(Z[1-5])/i
-  )
-  const afterMinutes = text.match(/después,?\s+(\d+)\s*min(?:utos)?\s+en\s+(Z[1-5])/i)
-  if (!intervals && !compact) {
+  } else if (!work) {
+    const steady = text.match(/ritmo constante en (Z[1-5])/i)
+    const afterMinutes = text.match(/después,?\s+(\d+)\s*min(?:utos)?\s+en\s+(Z[1-5])/i)
     const mainMinutes = afterMinutes ? Number(afterMinutes[1]) : null
-    const mainZone = afterMinutes?.[2] ?? steady?.[2] ?? input.zone
+    const mainZone = afterMinutes?.[2] ?? steady?.[1] ?? input.zone
     if (mainZone || mainMinutes != null) {
       blocks.push({
         label: 'Bloque principal',
@@ -335,4 +410,55 @@ function normalizeIntensity(value: string | undefined): string | null {
   if (v === 'fuerte') return 'Z5'
   if (v === 'tempo') return 'Z3'
   return value.toUpperCase()
+}
+
+function parseStatedIntervals(text: string): { repeats: number; minutes: number; intensity: string | null } | null {
+  const match = text.match(
+    /(\d+)\s*(?:bloques|series|pasadas|intervalos|repeticiones|reps?|chispazos)\s+de\s+(\d+)\s*min(?:utos)?(?:\s+(?:en\s+|al\s+|a\s+)?(Z[1-5]|FTP|umbral|fuerte|tempo|sweet\s*spot))?/i
+  )
+  if (!match) return null
+  return {
+    repeats: Number(match[1]),
+    minutes: Number(match[2]),
+    intensity: normalizeIntensity(match[3]),
+  }
+}
+
+function parseIntervalRecovery(
+  text: string,
+  repeats: number,
+  compact: { restMinutes: number; restExplicit: boolean } | null
+): WorkoutBlock | null {
+  const suaves = text.match(/(\d+)\s*min(?:utos)?\s+suaves(?:\s+entre(?:\s+(?:medio|cada\s+uno))?)?/i)
+  const minutes =
+    parseRestMinutes(text) ??
+    (suaves ? Number(suaves[1]) : null) ??
+    (compact ? compact.restMinutes : null)
+  if (minutes == null) return null
+
+  const zoneMatch =
+    text.match(/recuper\w*[^.]*?\ben\s+(Z[1-5])/i) ??
+    text.match(/\d+\s*min(?:utos)?\s+en\s+(Z[1-5])\s+entre/i)
+
+  return {
+    label: 'Recuperación entre series',
+    minutes,
+    repeats: repeats > 1 ? repeats - 1 : null,
+    intensity: zoneMatch?.[1] ? zoneMatch[1].toUpperCase() : 'Z1–Z2',
+  }
+}
+
+function parseExplicitSteady(text: string): { minutes: number | null; intensity: string | null } | null {
+  const continuous = text.match(/(\d+)\s*min(?:utos)?\s+continuos?(?:\s+en\s+(Z[1-5]))?/i)
+  if (continuous) {
+    return {
+      minutes: Number(continuous[1]),
+      intensity: continuous[2] ? continuous[2].toUpperCase() : null,
+    }
+  }
+  const after = text.match(/después,?\s+(\d+)\s*min(?:utos)?\s+en\s+(Z[1-5])/i)
+  if (after) {
+    return { minutes: Number(after[1]), intensity: after[2].toUpperCase() }
+  }
+  return null
 }

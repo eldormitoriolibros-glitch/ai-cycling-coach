@@ -18,6 +18,8 @@ export async function persistTrainingBrief(userId: string, brief: TrainingBrief)
       target_date: brief.target_date ?? null,
       horizon_weeks: brief.horizon_weeks,
       include_strength: brief.include_strength,
+      strength_equipment: brief.include_strength ? (brief.strength_equipment ?? null) : null,
+      recurring_issues: brief.recurring_issues ?? null,
       notes: brief.notes ?? null,
     },
     { onConflict: 'user_id' }

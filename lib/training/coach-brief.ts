@@ -6,12 +6,18 @@ export type BriefAvailabilityDay = {
   strength_minutes: number
 }
 
+export type StrengthEquipment = 'gym' | 'home' | 'bodyweight'
+
 export type TrainingBrief = {
   goal_kind: TrainingGoalKind
   goal_label?: string
   target_date?: string | null
   horizon_weeks: 4 | 8 | 12
   include_strength: boolean
+  /** gym, home (bands/dumbbells), or bodyweight. Required when include_strength. */
+  strength_equipment?: StrengthEquipment | null
+  /** null = not asked; empty = none; otherwise the niggle in the athlete's words. */
+  recurring_issues?: string | null
   notes?: string
   availability: BriefAvailabilityDay[]
 }
@@ -67,6 +73,14 @@ const GOAL_LABEL: Record<TrainingGoalKind, string> = {
   ftp: 'subir FTP',
   race: 'carrera / evento',
   return: 'volver de un parate',
+}
+
+const EQUIPMENT_KINDS = new Set<StrengthEquipment>(['gym', 'home', 'bodyweight'])
+
+export const EQUIPMENT_LABEL: Record<StrengthEquipment, string> = {
+  gym: 'gimnasio',
+  home: 'casa (bandas o pesas)',
+  bodyweight: 'solo peso corporal',
 }
 
 function pick(raw: Record<string, unknown>, keys: string[]): unknown {
@@ -150,6 +164,65 @@ function asBoolean(raw: unknown): boolean {
   return false
 }
 
+export function normalizeStrengthEquipment(raw: unknown): StrengthEquipment | null {
+  if (raw == null || raw === '') return null
+  const folded = fold(String(raw))
+  if (EQUIPMENT_KINDS.has(folded as StrengthEquipment)) return folded as StrengthEquipment
+  if (/peso corporal|calistenia|sin (?:material|pesas|implementos|equipo)|solo el cuerpo/.test(folded)) {
+    return 'bodyweight'
+  }
+  if (/gimnasio|\bgym\b|maquinas/.test(folded)) return 'gym'
+  if (/casa|bandas|mancuernas|kettle|implementos|pesas/.test(folded)) return 'home'
+  return null
+}
+
+/** null = not asked; empty string = none. */
+export function normalizeRecurringIssues(raw: unknown): string | null {
+  if (raw == null) return null
+  if (typeof raw !== 'string') return String(raw).slice(0, 300)
+  const trimmed = raw.trim()
+  if (!trimmed) return ''
+  const folded = fold(trimmed)
+  if (/^(ningun[ao]|nada|no|false|0)$/.test(folded) || /sin molestias/.test(folded)) return ''
+  return trimmed.slice(0, 300)
+}
+
+export function cycleBriefGaps(
+  brief: {
+    include_strength?: boolean | null
+    strength_equipment?: string | null
+    recurring_issues?: string | null
+  } | null
+): string[] {
+  if (!brief) {
+    return [
+      'objetivo',
+      'horizonte',
+      'semana típica',
+      'si hay fuerza (y con qué: gimnasio, casa o peso corporal)',
+      'molestias recurrentes (o ninguna)',
+    ]
+  }
+  const gaps: string[] = []
+  if (brief.include_strength && !normalizeStrengthEquipment(brief.strength_equipment)) {
+    gaps.push('implementos de fuerza (gimnasio, casa con bandas/pesas, o solo peso corporal)')
+  }
+  if (brief.recurring_issues == null) {
+    gaps.push('molestias recurrentes (o ninguna)')
+  }
+  return gaps
+}
+
+export function isCycleBriefComplete(
+  brief: {
+    include_strength?: boolean | null
+    strength_equipment?: string | null
+    recurring_issues?: string | null
+  } | null
+): boolean {
+  return cycleBriefGaps(brief).length === 0
+}
+
 function asHoursToMinutes(raw: unknown): number {
   if (typeof raw === 'number' && Number.isFinite(raw)) {
     return Math.min(1440, Math.max(0, Math.round(raw * 60)))
@@ -200,12 +273,22 @@ export function normalizeTrainingBrief(raw: unknown): TrainingBrief | null {
       ? asBoolean(pick(row, ['include_strength', 'strength', 'fuerza']))
       : availability.some((d) => d.strength_minutes > 0)
 
+  const equipmentRaw = pick(row, ['strength_equipment', 'equipment', 'implementos', 'setup'])
+  const issuesRaw = pick(row, ['recurring_issues', 'issues', 'molestias', 'constraints'])
+
   return {
     goal_kind,
     goal_label: typeof label === 'string' ? label.slice(0, 200) : undefined,
     target_date: isoDate(pick(row, ['target_date', 'date', 'fecha'])),
     horizon_weeks: normalizeHorizon(pick(row, ['horizon_weeks', 'horizon', 'weeks', 'semanas'])),
     include_strength: include,
+    strength_equipment: include ? normalizeStrengthEquipment(equipmentRaw) : null,
+    recurring_issues: Object.prototype.hasOwnProperty.call(row, 'recurring_issues')
+      || Object.prototype.hasOwnProperty.call(row, 'issues')
+      || Object.prototype.hasOwnProperty.call(row, 'molestias')
+      || Object.prototype.hasOwnProperty.call(row, 'constraints')
+      ? normalizeRecurringIssues(issuesRaw)
+      : null,
     notes: typeof notes === 'string' ? notes.slice(0, 500) : undefined,
     availability,
   }
@@ -250,13 +333,15 @@ export function formatTrainingBrief(
     target_date?: string | null
     horizon_weeks: number
     include_strength: boolean
+    strength_equipment?: string | null
+    recurring_issues?: string | null
     notes?: string | null
   } | null
 ): string[] {
   const lines = ['## Brief de entrenamiento']
   if (!brief) {
     lines.push(
-      '- sin brief: preguntá objetivo, horizonte (4/8/12 semanas o una fecha) y la semana típica (días, techo de horas, fuerza) antes de recetar un ciclo. No inventes horas ni objetivo.'
+      '- sin brief: solo preguntá objetivo, horizonte, semana típica, si hay fuerza (y con qué: gimnasio / casa / peso corporal) y si hay molestias recurrentes (o ninguna) si piden un ciclo o macro NUEVO. Si piden completar o ajustar una semana de un ciclo en curso (p. ej. la descarga que falta), recetá esa semana con la disponibilidad del contexto. No inventes horas ni objetivo.'
     )
     return lines
   }
@@ -268,7 +353,30 @@ export function formatTrainingBrief(
   lines.push(`- horizonte: ${brief.horizon_weeks} semanas`)
   if (brief.target_date) lines.push(`- fecha objetivo: ${brief.target_date}`)
   lines.push(`- fuerza: ${brief.include_strength ? 'sí, junto con la bici' : 'no, solo bici'}`)
+  const equipment = normalizeStrengthEquipment(brief.strength_equipment)
+  if (brief.include_strength) {
+    lines.push(
+      equipment
+        ? `- implementos: ${EQUIPMENT_LABEL[equipment]}. Recetá fuerza que entre en eso; no asumas gimnasio.`
+        : '- implementos: FALTA. Preguntá gimnasio, casa (bandas/pesas) o peso corporal antes de recetar fuerza.'
+    )
+  }
+  if (brief.recurring_issues == null) {
+    lines.push(
+      '- molestias: FALTA. En un ciclo NUEVO preguntá si hay alguna molestia recurrente (o ninguna). No diagnostiques; adaptá el plan.'
+    )
+  } else if (!brief.recurring_issues.trim()) {
+    lines.push('- molestias: ninguna declarada')
+  } else {
+    lines.push(
+      `- molestias: ${brief.recurring_issues.trim()}. Evitá el patrón que las irrita; no diagnostiques.`
+    )
+  }
   if (brief.notes?.trim()) lines.push(`- notas: ${brief.notes.trim()}`)
+  const gaps = cycleBriefGaps(brief)
+  if (gaps.length) {
+    lines.push(`- FALTA para un ciclo nuevo: ${gaps.join('; ')}. Preguntá eso antes de recetar el ciclo.`)
+  }
   lines.push(
     `- cada propuesta es el próximo ciclo de 4 semanas dentro de este macro, no una semana suelta ni las ${brief.horizon_weeks} semanas de una.`
   )

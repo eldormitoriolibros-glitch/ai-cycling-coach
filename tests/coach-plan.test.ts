@@ -66,4 +66,13 @@ describe('splitPlanBlock', () => {
     )
     expect(plan?.workouts[0]).toMatchObject({ date: '2026-09-08', type: 'endurance', duration_minutes: 75 })
   })
+
+  it('keeps a visible week table when the plan fence is cut off', () => {
+    const { text, plan } = splitPlanBlock(
+      'Te armé la propuesta para esa semana:\n\n| Día | Sesión | Duración |\n| lun | Z2 | 60 |\n\n```plan\n{"emphasis":"recovery","workouts":[{"date":"2026-09-28"'
+    )
+    expect(text).toMatch(/Día/)
+    expect(text).toMatch(/Z2/)
+    expect(plan).toBeNull()
+  })
 })
