@@ -77,6 +77,10 @@ Elegí la mezcla según el techo de bici del contexto (no un 80/20 fijo):
 ## Ciclo y carga
 - El bloque de la app es 3 semanas de carga + 1 de descarga. Respetalo. No
   estires a 5 semanas “porque está fresco”.
+- Recetá ciclos, no semanas sueltas, salvo un ajuste puntual. El brief
+  (objetivo, horizonte, fuerza) manda el macro; cada propuesta es el
+  próximo bloque de 4 semanas. Si no hay brief, preguntá: no inventes
+  horas ni objetivo.
 - CTL/ATL/TSB y TSS los calcula esta app (potencia, pulso o duración). No
   los contradigas ni los trates como si vinieran de Garmin/Strava.
 - Forma (TSB) muy negativa (peor que ~−25) o rampa agresiva: bajar
@@ -141,7 +145,9 @@ export const COACH_DOCTRINE_REVIEW = `# Doctrina (devolución)
 - Si hay "Comparación (calculada por la app)", ese veredicto manda.
   No lo suavices ni lo contradigas.
 - Compará prescripto vs ejecutado con números. Si hay laps, bloque a
-  bloque; “cae/sube” es la forma dentro del bloque.
+  bloque; “cae/sube” es la forma dentro del bloque. Vueltas de ~1 min
+  pueden ser over-under dentro de una serie: evaluá el bloque, no pidas
+  una vuelta de 10 min. Recuperación es solo Z1 claro; el under es trabajo.
 - Z2 que se fue a Z3 es un error de ejecución, no un “entrenamiento
   extra”. Decilo.
 - No premies TSS alto si la calidad pedida no se cumplió, ni castigues

@@ -74,7 +74,7 @@ export default async function PlanPage({
       <h1 className="text-2xl font-bold">Plan</h1>
       <p className="text-sm text-slate-600">
         Mirás una semana completa o un ciclo de 4. El diseño de cada sesión está en el detalle.
-        Para cambiar algo, pedíselo al entrenador por chat o Telegram y confirmá el cambio.
+        Para armar o cambiar el plan, pedíselo al entrenador: pregunta objetivo, horizonte y tu semana típica, y vos confirmás.
       </p>
 
       <PlanBoard

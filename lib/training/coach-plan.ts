@@ -1,3 +1,4 @@
+import { tryParseBrief, type TrainingBrief } from './coach-brief'
 import { resolveSessionKind, resolveSessionZone } from './session-prescription'
 
 export type CoachSessionType = 'recovery' | 'endurance' | 'long' | 'tempo' | 'threshold' | 'vo2max' | 'strength'
@@ -121,19 +122,41 @@ export function tryParsePlan(raw: string): CoachPlan | null {
 }
 
 /**
- * The coach appends a hidden ```plan``` block with the structured version of
- * whatever plan it just showed. Split it out so the athlete only sees the prose.
+ * The coach appends hidden ```plan``` / ```brief``` blocks. Split them out so
+ * the athlete only sees the prose.
  */
-export function splitPlanBlock(message: string): { text: string; plan: CoachPlan | null } {
+export function splitPlanBlock(message: string): {
+  text: string
+  plan: CoachPlan | null
+  brief: TrainingBrief | null
+} {
   let text = message
   let plan: CoachPlan | null = null
+  let brief: TrainingBrief | null = null
 
-  const fences = Array.from(text.matchAll(/```(?:plan|json)?\s*\n?([\s\S]*?)```/gi))
+  const fences = Array.from(text.matchAll(/```(?:plan|brief|json)?\s*\n?([\s\S]*?)```/gi))
   for (const match of fences) {
-    const parsed = tryParsePlan(match[1])
-    if (parsed) plan = parsed
-    if (parsed || /"workouts"\s*:/.test(match[1]) || /"emphasis"\s*:/.test(match[1])) {
+    const parsedBrief = tryParseBrief(match[1])
+    const parsedPlan = tryParsePlan(match[1])
+    if (parsedBrief) brief = parsedBrief
+    if (parsedPlan) plan = parsedPlan
+    if (
+      parsedBrief ||
+      parsedPlan ||
+      /"workouts"\s*:/.test(match[1]) ||
+      /"emphasis"\s*:/.test(match[1]) ||
+      /"goal_kind"\s*:/.test(match[1])
+    ) {
       text = text.replace(match[0], '')
+    }
+  }
+
+  const trailingBrief = text.match(/(\{[\s\S]*"goal_kind"\s*:[\s\S]*)$/)
+  if (trailingBrief && trailingBrief.index != null) {
+    const parsed = tryParseBrief(trailingBrief[1])
+    if (parsed) {
+      brief = parsed
+      text = text.slice(0, trailingBrief.index)
     }
   }
 
@@ -145,9 +168,10 @@ export function splitPlanBlock(message: string): { text: string; plan: CoachPlan
   }
 
   text = text
-    .replace(/```(?:plan|json)?[\s\S]*$/i, '')
+    .replace(/```(?:plan|brief|json)?[\s\S]*$/i, '')
     .replace(/\n?\{[\s\S]*"emphasis"[\s\S]*$/, '')
+    .replace(/\n?\{[\s\S]*"goal_kind"[\s\S]*$/, '')
     .trim()
 
-  return { text, plan }
+  return { text, plan, brief }
 }

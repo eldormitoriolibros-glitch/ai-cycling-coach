@@ -5,18 +5,25 @@ import { createClient } from '@/lib/supabase/server'
 
 export const dynamic = 'force-dynamic'
 
-export default async function CoachPage() {
+export default async function CoachPage({
+  searchParams,
+}: {
+  searchParams?: { start?: string }
+}) {
   const supabase = createClient()
   const {
     data: { user },
   } = await supabase.auth.getUser()
 
-  const { data: messages } = await supabase
-    .from('coach_messages')
-    .select('id, direction, channel, message, created_at')
-    .eq('user_id', user!.id)
-    .order('created_at', { ascending: false })
-    .limit(50)
+  const [{ data: messages }, { data: brief }] = await Promise.all([
+    supabase
+      .from('coach_messages')
+      .select('id, direction, channel, message, created_at')
+      .eq('user_id', user!.id)
+      .order('created_at', { ascending: false })
+      .limit(50),
+    supabase.from('training_briefs').select('user_id').eq('user_id', user!.id).maybeSingle(),
+  ])
 
   return (
     <div className="space-y-4">
@@ -29,7 +36,11 @@ export default async function CoachPage() {
         </Alert>
       )}
 
-      <CoachChat initialMessages={(messages ?? []).reverse()} />
+      <CoachChat
+        initialMessages={(messages ?? []).reverse()}
+        startPropose={searchParams?.start === 'propose'}
+        hasBrief={Boolean(brief)}
+      />
     </div>
   )
 }

@@ -76,6 +76,7 @@ describe('doctrine copy', () => {
     expect(COACH_DOCTRINE).toMatch(/pirámide/i)
     expect(COACH_DOCTRINE).toMatch(/3 semanas/)
     expect(COACH_DOCTRINE).toMatch(/descarga/)
+    expect(COACH_DOCTRINE).toMatch(/semanas sueltas/)
     expect(COACH_DOCTRINE).toMatch(/dentro del tiempo total/i)
     expect(COACH_DOCTRINE).toMatch(/[Ss]in reloj/)
   })

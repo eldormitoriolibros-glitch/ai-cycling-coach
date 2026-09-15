@@ -16,6 +16,7 @@ export type SyncTrigger = 'manual' | 'webhook' | 'cron'
 export type SyncStatus = 'success' | 'partial' | 'error'
 export type WorkoutStatus = 'scheduled' | 'completed' | 'skipped' | 'moved'
 export type PlanEmphasis = 'recovery' | 'maintenance' | 'build'
+export type TrainingGoalKind = 'maintenance' | 'ftp' | 'race' | 'return'
 export type FtpSource = 'manual' | 'estimated'
 export type StreamsStatus = 'ok' | 'no_power' | 'error'
 
@@ -105,6 +106,18 @@ type AvailabilityRow = {
   day_of_week: number
   bike_minutes: number
   strength_minutes: number
+  created_at: string
+  updated_at: string
+}
+
+type TrainingBriefRow = {
+  user_id: string
+  goal_kind: TrainingGoalKind
+  goal_label: string | null
+  target_date: string | null
+  horizon_weeks: 4 | 8 | 12
+  include_strength: boolean
+  notes: string | null
   created_at: string
   updated_at: string
 }
@@ -291,6 +304,12 @@ export interface Database {
         Row: AvailabilityRow
         Insert: Insert<AvailabilityRow, 'user_id' | 'day_of_week'>
         Update: Partial<AvailabilityRow>
+        Relationships: []
+      }
+      training_briefs: {
+        Row: TrainingBriefRow
+        Insert: Insert<TrainingBriefRow, 'user_id' | 'goal_kind' | 'horizon_weeks'>
+        Update: Partial<TrainingBriefRow>
         Relationships: []
       }
       strava_connections: {

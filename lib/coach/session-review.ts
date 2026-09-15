@@ -24,7 +24,7 @@ Estructura:
 3. Qué salió bien y qué corregir, con una causa probable.
 4. Qué implica para la próxima sesión (sin cambiar el plan salvo que haga falta; si hace falta, proponelo y pedí confirmación).
 
-Reglas: no inventes datos que no estén; si falta información (por ejemplo una sesión de fuerza que la app no puede medir), preguntale cómo le fue en vez de suponer. No des diagnósticos médicos.`
+Reglas: no inventes datos que no estén; si falta información (por ejemplo una sesión de fuerza que la app no puede medir), preguntale cómo le fue en vez de suponer. No des diagnósticos médicos. Si hay muchas vueltas de ~1 min, no digas que falta una vuelta de 10 min para evaluar: pueden ser over-under / 1x1 dentro de una serie más larga. "Recuperación" es solo lo claramente fácil (Z1). El under de un over-under es trabajo. Si la comparación de la app reconstruyó bloques, usá ese número.`
 
 type ReviewWorkout = {
   id: string
@@ -78,7 +78,9 @@ function describeExecution(activity: any | null, laps: ActivityLapRow[], samples
   const lines = [parts.join(' · ')]
   const lapLines = formatLapsForCoach(laps, samples)
   if (lapLines.length) {
-    lines.push('vueltas marcadas por el atleta (cada una es un bloque real de la sesión):')
+    lines.push(
+      'vueltas marcadas por el atleta. Si son de ~1 min, pueden ser over-under / 1x1 dentro de un bloque más largo; recuperación es solo lo claramente fácil:'
+    )
     lines.push(...lapLines)
   } else {
     lines.push('sin vueltas marcadas: no se puede analizar bloque por bloque.')

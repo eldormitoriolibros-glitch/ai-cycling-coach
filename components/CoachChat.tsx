@@ -39,6 +39,7 @@ const markdownComponents = {
   code: ({ children }: { children?: React.ReactNode }) => {
     const raw = String(children ?? '')
     if (/^\s*\{[\s\S]*"workouts"\s*:/.test(raw)) return null
+    if (/^\s*\{[\s\S]*"goal_kind"\s*:/.test(raw)) return null
     return <code className="rounded bg-background px-1 py-0.5 text-[0.85em]">{children}</code>
   },
 }
@@ -47,10 +48,33 @@ const markdownComponents = {
 const SUGGESTIONS = [
   '¿Qué debería entrenar hoy?',
   '¿Cómo viene mi carga esta semana?',
-  'Armame un plan para los próximos 7 días',
+  'Armame el próximo ciclo',
 ]
 
-export function CoachChat({ initialMessages }: { initialMessages: CoachMessage[] }) {
+const INTAKE_CHIPS = [
+  { label: 'Mantenimiento', text: 'El objetivo es mantenimiento, seguir andando bien sin una carrera.' },
+  { label: 'Subir FTP', text: 'El objetivo es subir el FTP.' },
+  { label: 'Carrera o evento', text: 'El objetivo es una carrera o un evento; te paso la fecha.' },
+  { label: 'Volver de un parate', text: 'Estoy volviendo de un parate.' },
+  { label: '4 semanas', text: 'Armemos un horizonte de 4 semanas.' },
+  { label: '8 semanas', text: 'Armemos un horizonte de 8 semanas.' },
+  { label: '12 semanas', text: 'Armemos un horizonte de 12 semanas.' },
+  { label: 'Hasta una fecha', text: 'El horizonte es hasta una fecha; te la digo.' },
+  { label: 'Con fuerza', text: 'Sí, incluí sesiones de fuerza junto con la bici.' },
+  { label: 'Solo bici', text: 'No, solo bici. Sin fuerza.' },
+]
+
+let proposeIntakeLock = false
+
+export function CoachChat({
+  initialMessages,
+  startPropose = false,
+  hasBrief = false,
+}: {
+  initialMessages: CoachMessage[]
+  startPropose?: boolean
+  hasBrief?: boolean
+}) {
   const [messages, setMessages] = useState(initialMessages)
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
@@ -64,28 +88,38 @@ export function CoachChat({ initialMessages }: { initialMessages: CoachMessage[]
     endRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  const send = async (text: string) => {
+  useEffect(() => {
+    if (!startPropose || proposeIntakeLock) return
+    proposeIntakeLock = true
+    void send('', { start: 'propose' })
+    // startPropose is a mount flag from the Plan button
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [startPropose])
+
+  const send = async (text: string, opts?: { start?: 'propose' }) => {
     const trimmed = text.trim()
-    if (!trimmed || sending) return
+    if ((!trimmed && opts?.start !== 'propose') || sending) return
 
     setError(null)
     setSending(true)
-    setInput('')
+    if (trimmed) setInput('')
 
-    const optimistic: CoachMessage = {
-      id: `local-${Date.now()}`,
-      direction: 'inbound',
-      channel: 'web',
-      message: trimmed,
-      created_at: new Date().toISOString(),
-    }
-    setMessages((prev) => [...prev, optimistic])
+    const optimistic: CoachMessage | null = trimmed
+      ? {
+          id: `local-${Date.now()}`,
+          direction: 'inbound',
+          channel: 'web',
+          message: trimmed,
+          created_at: new Date().toISOString(),
+        }
+      : null
+    if (optimistic) setMessages((prev) => [...prev, optimistic])
 
     try {
       const response = await fetch('/api/coach', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: trimmed }),
+        body: JSON.stringify(opts?.start === 'propose' ? { start: 'propose' } : { message: trimmed }),
       })
       const body = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(body.error ?? 'El entrenador no pudo responder.')
@@ -103,11 +137,14 @@ export function CoachChat({ initialMessages }: { initialMessages: CoachMessage[]
       if (typeof body.reply === 'string' && /Cambio confirmado/.test(body.reply)) {
         router.push('/plan')
         router.refresh()
+      } else if (typeof body.reply === 'string' && splitPlanBlock(body.reply).brief) {
+        router.refresh()
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error inesperado.')
-      setMessages((prev) => prev.filter((m) => m.id !== optimistic.id))
-      setInput(trimmed)
+      if (optimistic) setMessages((prev) => prev.filter((m) => m.id !== optimistic.id))
+      if (trimmed) setInput(trimmed)
+      if (opts?.start === 'propose') proposeIntakeLock = false
     } finally {
       setSending(false)
     }
@@ -176,7 +213,7 @@ export function CoachChat({ initialMessages }: { initialMessages: CoachMessage[]
   return (
     <Card className="flex h-[60vh] md:h-[70vh] flex-col gap-4 p-4">
       <div className="flex-1 space-y-3 overflow-y-auto pr-1">
-        {messages.length === 0 && (
+        {messages.length === 0 && !sending && !startPropose && (
           <div className="space-y-3 py-8 text-center">
             <p className="text-sm text-muted">Preguntale lo que quieras sobre tu entrenamiento.</p>
             <div className="flex flex-wrap justify-center gap-2">
@@ -191,6 +228,22 @@ export function CoachChat({ initialMessages }: { initialMessages: CoachMessage[]
                 </button>
               ))}
             </div>
+          </div>
+        )}
+
+        {startPropose && !hasBrief && (
+          <div className="flex flex-wrap gap-2">
+            {INTAKE_CHIPS.map((chip) => (
+              <button
+                key={chip.label}
+                type="button"
+                onClick={() => send(chip.text)}
+                disabled={sending}
+                className="rounded-full border border-surface px-3 py-1 text-xs text-muted hover:bg-background hover:text-foreground disabled:opacity-50"
+              >
+                {chip.label}
+              </button>
+            ))}
           </div>
         )}
 

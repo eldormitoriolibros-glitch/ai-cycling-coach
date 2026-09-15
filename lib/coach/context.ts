@@ -9,6 +9,7 @@ import { formatAthleteState } from '@/lib/training/readiness'
 import { readinessFrom } from '@/lib/training/readiness-input'
 import { loadPreviousSnapshot } from '@/lib/training/snapshot'
 import { formatLoadSeries, formatPowerContext, formatExecution, formatCycleHistory } from './execution'
+import { formatTrainingBrief } from '@/lib/training/coach-brief'
 import { suggestIntensityDistribution } from './doctrine'
 
 import 'server-only'
@@ -24,11 +25,12 @@ export async function buildAthleteContext(userId: string): Promise<string> {
 
   const cycleCutoff = addDays(new Date().toISOString().slice(0, 10), -84)
 
-  const [profile, metrics, availability, loadSeries, activities, cycleActivities, workouts, recovery, sleep, planWeeks] =
+  const [profile, metrics, availability, brief, loadSeries, activities, cycleActivities, workouts, recovery, sleep, planWeeks] =
     await Promise.all([
       supabase.from('users').select('*').eq('id', userId).maybeSingle(),
       supabase.from('athlete_metrics').select('*').eq('user_id', userId).maybeSingle(),
       supabase.from('availability').select('*').eq('user_id', userId),
+      supabase.from('training_briefs').select('*').eq('user_id', userId).maybeSingle(),
       supabase
         .from('training_load')
         .select('date, daily_load, chronic_load, acute_load, form, ramp_rate')
@@ -111,6 +113,9 @@ export async function buildAthleteContext(userId: string): Promise<string> {
   )
 
   if (p?.cycling_goals?.length) lines.push(`objetivos: ${p.cycling_goals.join(', ')}`)
+
+  lines.push('')
+  lines.push(...formatTrainingBrief(brief.data ?? null))
 
   lines.push('')
   lines.push('## Umbrales')

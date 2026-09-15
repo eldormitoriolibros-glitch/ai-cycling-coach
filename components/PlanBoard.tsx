@@ -1,8 +1,9 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { CalendarPlus, Check, ChevronLeft, ChevronRight, Layers, X } from 'lucide-react'
+import { CalendarPlus, ChevronLeft, ChevronRight, Moon } from 'lucide-react'
 import { Alert, Button, Card } from '@/components/ui'
 import { createClient } from '@/lib/supabase/client'
 import type { WorkoutStatus } from '@/lib/types/database'
@@ -28,56 +29,27 @@ export type ScheduledWorkout = {
   completed_activity_id?: string | null
 }
 
-type DraftWorkout = {
-  scheduled_date: string
-  workout_type: string
-  title: string
-  description: string
-  duration_minutes: number
-  target_zone: string
-  target_power: number | null
-  target_hr: number | null
-  purpose: string
-  estimated_load: number
-}
-
-type Draft = {
-  startDate: string
-  endDate: string
-  emphasis: 'recovery' | 'maintenance' | 'build'
-  blockPosition: number
-  weeklyTargetLoad: number
-  plannedLoad: number
-  workouts: DraftWorkout[]
-  notes: string[]
-}
-
-type Proposal = { draft: Draft; rationale: string | null; replacesExisting: number }
-
-const EMPHASIS_LABEL: Record<Draft['emphasis'], string> = {
-  recovery: 'Descarga',
-  maintenance: 'Mantenimiento',
-  build: 'Carga',
-}
-
 function weekday(date: string): string {
   return new Intl.DateTimeFormat('es-AR', { weekday: 'short', day: 'numeric', month: 'short' }).format(
     new Date(`${date}T12:00:00Z`)
   )
 }
 
-function isStrengthSession(w: { title?: string | null; workout_type?: string | null }): boolean {
-  return looksStrength(w.title, w.workout_type)
+function RestDaySlot({ compact }: { compact?: boolean }) {
+  return (
+    <div
+      className={`flex items-center gap-2 rounded-lg border border-teal-400/45 bg-teal-500/10 px-3 text-teal-900 dark:border-teal-400/30 dark:bg-teal-400/10 dark:text-teal-100 ${
+        compact ? 'py-2' : 'py-2.5'
+      }`}
+    >
+      <Moon aria-hidden className="h-3.5 w-3.5 shrink-0 text-teal-600 dark:text-teal-300" />
+      <p className="text-sm font-medium">Descanso</p>
+    </div>
+  )
 }
 
-function groupByDate<T extends { scheduled_date: string }>(items: T[]): Array<[string, T[]]> {
-  const map = new Map<string, T[]>()
-  for (const item of items) {
-    const list = map.get(item.scheduled_date) ?? []
-    list.push(item)
-    map.set(item.scheduled_date, list)
-  }
-  return Array.from(map.entries())
+function isStrengthSession(w: { title?: string | null; workout_type?: string | null }): boolean {
+  return looksStrength(w.title, w.workout_type)
 }
 
 function weekStats(sessions: ScheduledWorkout[]) {
@@ -101,8 +73,6 @@ export function PlanBoard({
   const router = useRouter()
   const supabase = createClient()
 
-  const [proposal, setProposal] = useState<Proposal | null>(null)
-  const [busy, setBusy] = useState<'propose' | 'cycle' | 'commit' | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
   const [view, setView] = useState<'week' | 'cycle'>('week')
@@ -205,53 +175,6 @@ export function PlanBoard({
     })
   }, [workouts, router, supabase])
 
-  const propose = async (action: 'propose' | 'propose_cycle') => {
-    setBusy(action === 'propose_cycle' ? 'cycle' : 'propose')
-    setError(null)
-    setSuccess(null)
-    try {
-      const response = await fetch('/api/training/plan', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, startDate: weekStart }),
-      })
-      const body = await response.json().catch(() => ({}))
-      if (!response.ok) throw new Error(body.error ?? 'No se pudo generar la propuesta.')
-      setProposal(body)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error inesperado.')
-    } finally {
-      setBusy(null)
-    }
-  }
-
-  const commit = async () => {
-    if (!proposal) return
-    setBusy('commit')
-    setError(null)
-    try {
-      const response = await fetch('/api/training/plan', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'commit',
-          draft: proposal.draft,
-          rationale: proposal.rationale,
-        }),
-      })
-      const body = await response.json().catch(() => ({}))
-      if (!response.ok) throw new Error(body.error ?? 'No se pudo guardar el plan.')
-
-      setProposal(null)
-      setSuccess(`Plan guardado: ${body.created} sesiones.`)
-      router.refresh()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error inesperado.')
-    } finally {
-      setBusy(null)
-    }
-  }
-
   const setStatus = async (id: string, status: WorkoutStatus) => {
     setError(null)
     try {
@@ -288,90 +211,20 @@ export function PlanBoard({
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
-        <Button onClick={() => propose('propose')} loading={busy === 'propose'} disabled={busy !== null}>
+        <Link
+          href="/coach?start=propose"
+          className="inline-flex items-center justify-center gap-2 rounded-md bg-accent-600 px-4 py-2 text-sm font-medium text-white shadow-sm shadow-accent-600/20 transition hover:bg-accent-500"
+        >
           <CalendarPlus aria-hidden className="h-4 w-4" />
-          Proponer semana
-        </Button>
-        <Button variant="secondary" onClick={() => propose('propose_cycle')} loading={busy === 'cycle'} disabled={busy !== null}>
-          <Layers aria-hidden className="h-4 w-4" />
-          Proponer ciclo
-        </Button>
-        <span className="text-xs text-slate-500">Nada se guarda hasta que aprobés. Los cambios del plan se piden al entrenador y se confirman.</span>
+          Proponer entrenamiento
+        </Link>
+        <span className="text-xs text-slate-500">
+          El entrenador pregunta objetivo, horizonte y tu semana típica. Nada se guarda hasta que confirmes el ciclo.
+        </span>
       </div>
 
       {error && <Alert variant="error">{error}</Alert>}
       {success && <Alert variant="success">{success}</Alert>}
-
-      {proposal && (
-        <Card className="space-y-4 border-slate-900">
-          <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <h2 className="font-bold">
-              Propuesta · {proposal.draft.startDate} a {proposal.draft.endDate}
-            </h2>
-            <span className="rounded-full bg-slate-500/15 px-2 py-1 text-xs font-medium text-muted">
-              {EMPHASIS_LABEL[proposal.draft.emphasis]}
-            </span>
-          </div>
-
-          <p className="text-sm text-slate-600">
-            Semana {proposal.draft.blockPosition} de 4 del bloque · carga objetivo {proposal.draft.weeklyTargetLoad} ·
-            planificada {proposal.draft.plannedLoad}
-          </p>
-
-          {proposal.rationale && (
-            <p className="rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-700">{proposal.rationale}</p>
-          )}
-
-          {proposal.draft.notes.length > 0 && (
-            <ul className="space-y-1 text-xs text-amber-700">
-              {proposal.draft.notes.map((note) => (
-                <li key={note}>• {note}</li>
-              ))}
-            </ul>
-          )}
-
-          {proposal.draft.workouts.length === 0 ? (
-            <Alert variant="info">No se pudo armar la propuesta. Revisá tu disponibilidad.</Alert>
-          ) : (
-            <div className="space-y-4">
-              {groupByDate(proposal.draft.workouts).map(([date, sessions]) => (
-                <div key={date} className="space-y-2">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted">{weekday(date)}</p>
-                  {sessions.map((w, i) => (
-                    <SessionCard
-                      key={`${w.scheduled_date}-${w.workout_type}-${i}`}
-                      session={w}
-                      extra={w.estimated_load ? String(w.estimated_load) : null}
-                    />
-                  ))}
-                </div>
-              ))}
-            </div>
-          )}
-
-          {proposal.replacesExisting > 0 && (
-            <Alert variant="info">
-              Aprobar reemplaza {proposal.replacesExisting} sesión(es) ya programada(s) en esas fechas. Las que
-              marcaste como hechas no se tocan.
-            </Alert>
-          )}
-
-          <div className="flex flex-wrap gap-2">
-            <Button
-              onClick={commit}
-              loading={busy === 'commit'}
-              disabled={busy !== null || proposal.draft.workouts.length === 0}
-            >
-              <Check aria-hidden className="h-4 w-4" />
-              Aprobar y guardar
-            </Button>
-            <Button variant="secondary" onClick={() => setProposal(null)} disabled={busy !== null}>
-              <X aria-hidden className="h-4 w-4" />
-              Descartar
-            </Button>
-          </div>
-        </Card>
-      )}
 
       <Card className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -512,16 +365,18 @@ function WeekAgenda({
                 {weekday(date)}
                 {date === today ? ' · Hoy' : date < today ? ' · Pasado' : ''}
               </p>
-              {daySessions.length > 0 && (
+              {daySessions.length > 0 ? (
                 <p className="text-xs font-semibold tabular-nums text-foreground">
                   {daySessions.reduce((sum, w) => sum + (w.duration_minutes ?? 0), 0)} min
                 </p>
+              ) : (
+                <span className="rounded-full bg-teal-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-teal-800 dark:text-teal-300">
+                  Descanso
+                </span>
               )}
             </div>
             {daySessions.length === 0 ? (
-              <p className="rounded-lg border border-dashed border-surface px-3 py-2 text-xs text-muted">
-                Libre / descanso
-              </p>
+              <RestDaySlot compact={compact} />
             ) : (
               daySessions.map((w) => (
                 <SessionCard

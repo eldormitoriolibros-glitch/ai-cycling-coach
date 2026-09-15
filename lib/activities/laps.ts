@@ -39,28 +39,45 @@ export async function loadActivityLaps(
   return (data ?? []) as ActivityLapRow[]
 }
 
-/**
- * Splits laps into work and recovery by intensity relative to the ride.
- * FIT sometimes carries `intensity` ('active' / 'rest') from a structured
- * workout; when it doesn't, power (or HR) against the ride average decides.
- */
-export function classifyLaps(laps: ActivityLapRow[]): Array<ActivityLapRow & { effort: 'work' | 'rest' }> {
-  const metric = (lap: ActivityLapRow): number | null => lap.avg_power ?? lap.avg_hr ?? null
-  const values = laps.map(metric).filter((v): v is number => v != null)
-  if (values.length === 0) return laps.map((lap) => ({ ...lap, effort: 'work' as const }))
+export type EffortHint = {
+  value: number | null
+  intensity?: string | null
+}
 
+/** Rest is clearly easy vs the hard parts of the ride (~<85% of the 75th percentile), not "a bit below the median". */
+const REST_OF_HIGH_FRACTION = 0.85
+
+function highEffortReference(values: number[]): number | null {
+  if (!values.length) return null
   const sorted = [...values].sort((a, b) => a - b)
-  const median = sorted[Math.floor(sorted.length / 2)]
+  const rank = Math.min(sorted.length, Math.max(1, Math.ceil(sorted.length * 0.75)))
+  return sorted[rank - 1]
+}
 
-  return laps.map((lap) => {
-    const declared = (lap.intensity ?? '').toLowerCase()
+/**
+ * Splits laps into work and recovery. FIT `intensity` wins when present;
+ * otherwise rest is only the clearly easy bits. Over-under "under" minutes
+ * stay work: they sit well above Z1 even if they sit below the ride median.
+ */
+export function classifyEffort(hints: EffortHint[]): Array<'work' | 'rest'> {
+  const threshold = highEffortReference(hints.map((h) => h.value).filter((v): v is number => v != null))
+
+  return hints.map((hint) => {
+    const declared = (hint.intensity ?? '').toLowerCase()
     if (declared === 'rest' || declared === 'recovery' || declared === 'warmup' || declared === 'cooldown') {
-      return { ...lap, effort: 'rest' as const }
+      return 'rest'
     }
-    if (declared === 'active') return { ...lap, effort: 'work' as const }
-    const value = metric(lap)
-    return { ...lap, effort: value != null && value >= median * 1.03 ? ('work' as const) : ('rest' as const) }
+    if (declared === 'active') return 'work'
+    if (threshold == null || hint.value == null) return 'work'
+    return hint.value < threshold * REST_OF_HIGH_FRACTION ? 'rest' : 'work'
   })
+}
+
+export function classifyLaps(laps: ActivityLapRow[]): Array<ActivityLapRow & { effort: 'work' | 'rest' }> {
+  const efforts = classifyEffort(
+    laps.map((lap) => ({ value: lap.avg_power ?? lap.avg_hr ?? null, intensity: lap.intensity }))
+  )
+  return laps.map((lap, i) => ({ ...lap, effort: efforts[i] }))
 }
 
 function fmtDuration(seconds: number | null): string {

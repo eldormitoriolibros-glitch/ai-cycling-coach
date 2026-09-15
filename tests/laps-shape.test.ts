@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { analyzeLapShape, formatLapsForCoach, type ActivityLapRow } from '@/lib/activities/laps'
+import { analyzeLapShape, classifyLaps, formatLapsForCoach, type ActivityLapRow } from '@/lib/activities/laps'
 
 function lap(overrides: Partial<ActivityLapRow> & { lap_index: number }): ActivityLapRow {
   return {
@@ -60,5 +60,29 @@ describe('formatLapsForCoach', () => {
     expect(lines[0]).toContain('cae 14%')
     expect(lines[0]).toContain('pulso +12 ppm')
     expect(lines[1]).not.toContain('cae')
+  })
+})
+
+describe('classifyLaps', () => {
+  it('treats over-under minutes as work and only clearly easy laps as rest', () => {
+    const laps = [
+      lap({ lap_index: 1, intensity: null, avg_power: null, avg_hr: 167, moving_seconds: 60, elapsed_seconds: 60 }),
+      lap({ lap_index: 2, intensity: null, avg_power: null, avg_hr: 147, moving_seconds: 60, elapsed_seconds: 60 }),
+      lap({ lap_index: 3, intensity: null, avg_power: null, avg_hr: 168, moving_seconds: 60, elapsed_seconds: 60 }),
+      lap({ lap_index: 4, intensity: null, avg_power: null, avg_hr: 146, moving_seconds: 60, elapsed_seconds: 60 }),
+      lap({ lap_index: 5, intensity: null, avg_power: null, avg_hr: 120, moving_seconds: 240, elapsed_seconds: 240 }),
+    ]
+    const classified = classifyLaps(laps)
+    expect(classified.map((l) => l.effort)).toEqual(['work', 'work', 'work', 'work', 'rest'])
+  })
+
+  it('does not label a delayed-HR over as recovery just because it sits near the median', () => {
+    const laps = [
+      lap({ lap_index: 1, intensity: null, avg_power: null, avg_hr: 167, moving_seconds: 60, elapsed_seconds: 60 }),
+      lap({ lap_index: 2, intensity: null, avg_power: null, avg_hr: 147, moving_seconds: 60, elapsed_seconds: 60 }),
+      lap({ lap_index: 3, intensity: null, avg_power: null, avg_hr: 155, moving_seconds: 60, elapsed_seconds: 60 }),
+      lap({ lap_index: 4, intensity: null, avg_power: null, avg_hr: 118, moving_seconds: 240, elapsed_seconds: 240 }),
+    ]
+    expect(classifyLaps(laps)[2].effort).toBe('work')
   })
 })

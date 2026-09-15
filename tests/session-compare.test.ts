@@ -121,6 +121,35 @@ describe('compareSession', () => {
     expect(missed.verdict).toBe('calidad_fallida')
   })
 
+  it('reconstructs 3×10 over-unders from 1-min laps instead of calling the unders recovery', () => {
+    const laps = [{ moving_seconds: 12 * 60, avg_hr: 118 }]
+    for (let block = 0; block < 3; block++) {
+      for (let minute = 0; minute < 10; minute++) {
+        laps.push({ moving_seconds: 60, avg_hr: minute % 2 === 0 ? 167 : 147 })
+      }
+      if (block < 2) laps.push({ moving_seconds: 4 * 60, avg_hr: 120 })
+    }
+    laps.push({ moving_seconds: 10 * 60, avg_hr: 115 })
+
+    const result = compareSession({
+      workoutType: 'threshold',
+      title: 'Bici Over-Unders 3×10m',
+      durationMinutes: 90,
+      targetPower: null,
+      targetHr: 158,
+      hasActivity: true,
+      movingSeconds: 90 * 60,
+      avgPower: null,
+      normalizedPower: null,
+      intensityFactor: null,
+      avgHr: 148,
+      laps,
+    })
+    expect(result.verdict).toBe('como_prescripto')
+    expect(result.notes.some((n) => n.includes('bloques de trabajo: 3'))).toBe(true)
+    expect(result.notes.some((n) => n.includes('reconstruidos'))).toBe(true)
+  })
+
   it('treats a hard endurance IF as a failed Z2, not extra stimulus', () => {
     const result = compareSession({
       workoutType: 'endurance',

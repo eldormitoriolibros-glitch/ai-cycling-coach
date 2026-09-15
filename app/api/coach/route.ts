@@ -8,7 +8,14 @@ import { createClient } from '@/lib/supabase/server'
 export const dynamic = 'force-dynamic'
 export const maxDuration = 180
 
-const bodySchema = z.object({ message: z.string().trim().min(1).max(2000) })
+const bodySchema = z
+  .object({
+    message: z.string().trim().max(2000).optional(),
+    start: z.literal('propose').optional(),
+  })
+  .refine((data) => data.start === 'propose' || (data.message && data.message.length >= 1), {
+    message: 'Mensaje inválido.',
+  })
 
 /** The Gemini quota is shared by every athlete, so one chat cannot hog it. */
 const COACH_LIMIT = 20
@@ -38,7 +45,9 @@ export async function POST(request: Request) {
   }
 
   try {
-    const reply = await askCoach(user.id, parsed.data.message, 'web')
+    const reply = await askCoach(user.id, parsed.data.message ?? '', 'web', {
+      start: parsed.data.start,
+    })
     return NextResponse.json({ reply })
   } catch (err) {
     if (err instanceof AiNotConfiguredError) {

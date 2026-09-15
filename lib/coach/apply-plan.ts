@@ -7,6 +7,7 @@ import {
   readPendingPlan,
   type PendingPlanRecord,
 } from '@/lib/coach/proposed-plan'
+import { persistTrainingBrief } from '@/lib/coach/persist-brief'
 import { isPlanConfirm } from '@/lib/training/plan-intent'
 import { coachPlanToDraft, commitWeeklyPlan } from '@/lib/training/plan-service'
 import { createAdminClient } from '@/lib/supabase/admin'
@@ -63,6 +64,9 @@ export async function applyCoachPlanIfRequested(
   reply: string
 ): Promise<{ reply: string; created: number; proposed: CoachPlan | null }> {
   const fromReply = splitPlanBlock(reply)
+  if (fromReply.brief) {
+    await persistTrainingBrief(userId, fromReply.brief).catch(() => null)
+  }
 
   if (!isPlanConfirm(userMessage)) {
     return { reply, created: 0, proposed: fromReply.plan }
@@ -71,6 +75,16 @@ export async function applyCoachPlanIfRequested(
   const pending = await loadPendingPlan(userId)
   const plan = pending?.plan ?? fromReply.plan
   if (!plan) return { reply, created: 0, proposed: null }
+
+  if (pending?.messageId) {
+    const { data } = await createAdminClient()
+      .from('coach_messages')
+      .select('message')
+      .eq('id', pending.messageId)
+      .maybeSingle()
+    const storedBrief = data?.message ? splitPlanBlock(data.message).brief : null
+    if (storedBrief) await persistTrainingBrief(userId, storedBrief).catch(() => null)
+  }
 
   const proposal = await coachPlanToDraft(userId, plan)
   if (!proposal.draft.workouts.length) return { reply, created: 0, proposed: null }

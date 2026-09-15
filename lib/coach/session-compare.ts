@@ -1,3 +1,4 @@
+import { classifyEffort } from '@/lib/activities/laps'
 import { parseCompactIntervals } from '@/lib/training/session-prescription'
 import { looksStrength } from '@/lib/training/split-sessions'
 import { TEMPLATES, type SessionKind } from '@/lib/training/planner2'
@@ -7,6 +8,7 @@ export type CompareLap = {
   elapsed_seconds?: number | null
   avg_power?: number | null
   avg_hr?: number | null
+  intensity?: string | null
 }
 
 export type SessionCompareInput = {
@@ -61,12 +63,53 @@ function lapSeconds(lap: CompareLap): number {
   return lap.moving_seconds ?? lap.elapsed_seconds ?? 0
 }
 
-function countWorkLaps(laps: CompareLap[], workMinutes: number): number {
+function lapEffort(laps: CompareLap[]): Array<'work' | 'rest'> {
+  return classifyEffort(
+    laps.map((lap) => ({ value: lap.avg_power ?? lap.avg_hr ?? null, intensity: lap.intensity }))
+  )
+}
+
+function matchesPrescribedDuration(seconds: number, workMinutes: number): boolean {
   const target = workMinutes * 60
-  return laps.filter((lap) => {
-    const seconds = lapSeconds(lap)
-    return seconds >= target * 0.7 && seconds <= target * 1.3
-  }).length
+  return seconds >= target * 0.7 && seconds <= target * 1.3
+}
+
+/** Native laps whose duration already matches the prescribed work block. */
+function countNativeWorkLaps(laps: CompareLap[], workMinutes: number): number {
+  const efforts = lapEffort(laps)
+  return laps.filter((lap, i) => efforts[i] === 'work' && matchesPrescribedDuration(lapSeconds(lap), workMinutes)).length
+}
+
+/**
+ * Consecutive work seconds packed into the prescribed block length.
+ * 1-min over-under laps inside a 10-min series count as one block, not 10 rests.
+ */
+function packWorkBlocks(laps: CompareLap[], workMinutes: number): number {
+  const target = workMinutes * 60
+  const efforts = lapEffort(laps)
+  let packed = 0
+  let acc = 0
+
+  const flush = () => {
+    if (acc >= target * 0.7) packed += Math.max(1, Math.round(acc / target))
+    acc = 0
+  }
+
+  for (let i = 0; i < laps.length; i++) {
+    if (efforts[i] === 'work') acc += lapSeconds(laps[i])
+    else flush()
+  }
+  flush()
+  return packed
+}
+
+export function countPrescribedBlocks(
+  laps: CompareLap[],
+  workMinutes: number
+): { blocks: number; native: number; packed: number } {
+  const native = countNativeWorkLaps(laps, workMinutes)
+  const packed = packWorkBlocks(laps, workMinutes)
+  return { blocks: Math.max(native, packed), native, packed }
 }
 
 /**
@@ -125,9 +168,13 @@ export function compareSession(input: SessionCompareInput): SessionCompareResult
   const compact = parseCompactIntervals(input.title) ?? parseCompactIntervals(input.description)
   let missedIntervals = false
   if (compact && input.laps && input.laps.length >= 2) {
-    const done = countWorkLaps(input.laps, compact.minutes)
-    notes.push(`intervalos ${compact.repeats}×${compact.minutes} min · vueltas de trabajo: ${done}`)
-    if (done <= compact.repeats - 2 || done === 0) missedIntervals = true
+    const { blocks, native, packed } = countPrescribedBlocks(input.laps, compact.minutes)
+    notes.push(
+      packed > native
+        ? `intervalos ${compact.repeats}×${compact.minutes} min · bloques de trabajo: ${blocks} (reconstruidos de ${input.laps.length} vueltas)`
+        : `intervalos ${compact.repeats}×${compact.minutes} min · vueltas de trabajo: ${blocks}`
+    )
+    if (blocks <= compact.repeats - 2 || blocks === 0) missedIntervals = true
   }
 
   let verdict: SessionVerdict = 'como_prescripto'
