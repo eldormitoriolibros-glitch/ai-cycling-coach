@@ -4,6 +4,25 @@ export function garminActivityId(activity: any): string | null {
   return id == null ? null : String(id)
 }
 
+export type ListedRideFitPlan = 'create+download' | 'download' | 'skip'
+
+/**
+ * A listed Garmin ride still needs its FIT when the row in the app has no
+ * splits — including Strava-first copies that matched by time. Skipping those
+ * left those rides with zero laps after every later sync.
+ */
+export function planListedRideFit(input: {
+  storedGarmin: boolean
+  storedTimeOk: boolean
+  matchedExisting: boolean
+  existingHasSplits: boolean
+}): ListedRideFitPlan {
+  if (input.existingHasSplits) return 'skip'
+  if (input.storedGarmin && input.storedTimeOk) return 'download'
+  if (input.matchedExisting) return 'download'
+  return 'create+download'
+}
+
 /**
  * Picks Garmin list rows worth downloading on incremental sync. We skip ids
  * already imported as source=garmin; everything else in the recent window is

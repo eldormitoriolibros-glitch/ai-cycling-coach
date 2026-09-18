@@ -8,6 +8,7 @@ import {
   loadThresholds,
   upsertGarminListActivities,
 } from './activity-sync'
+import { planListedRideFit } from './incremental-sync'
 import type { ParsedFitActivity } from './fit'
 import { findMatch, type ExistingActivity } from './activity-match'
 import { listActivityToParsedFit, parseGarminListStart } from './list-import'
@@ -72,6 +73,10 @@ export async function syncGarminData(userId: string): Promise<SyncResult> {
     const existingRows = await loadExistingGarminRows(userId, candidateIds)
     const cutoff = new Date(Date.now() - 21 * 86_400_000)
     const recentExisting = await loadRecentActivityMatches(userId, cutoff)
+    const idsWithSplits = await loadActivityIdsWithSplits(
+      userId,
+      [...recentExisting.map((row) => row.id), ...[...existingRows.values()].map((row) => row.id)]
+    )
     const taken = new Set<string>()
 
     const toCreate: ParsedFitActivity[] = []
@@ -83,23 +88,26 @@ export async function syncGarminData(userId: string): Promise<SyncResult> {
       const id = garminActivityId(activity)
       if (!id) continue
 
-      const stored = existingRows.get(id)
-      if (stored) {
-        if (!start) continue
-        const delta = Math.abs(new Date(stored.start_time).getTime() - start.getTime())
-        if (delta <= 12 * 3_600_000) continue
-      }
-
       const parsed = listActivityToParsedFit(activity)
       if (!parsed) continue
 
-      const match = findMatch(parsed, recentExisting, taken)
-      if (match) {
-        taken.add(match.activity.id)
-        continue
-      }
+      const stored = existingRows.get(id)
+      const storedTimeOk = Boolean(
+        stored && start && Math.abs(new Date(stored.start_time).getTime() - start.getTime()) <= 12 * 3_600_000
+      )
+      const match = storedTimeOk ? null : findMatch(parsed, recentExisting, taken)
+      const existingId = storedTimeOk ? stored!.id : match?.activity.id ?? null
+      if (existingId) taken.add(existingId)
 
-      toCreate.push(parsed)
+      const plan = planListedRideFit({
+        storedGarmin: Boolean(stored),
+        storedTimeOk,
+        matchedExisting: Boolean(match),
+        existingHasSplits: existingId ? idsWithSplits.has(existingId) : false,
+      })
+
+      if (plan === 'skip') continue
+      if (plan === 'create+download') toCreate.push(parsed)
       toDownload.push(activity)
     }
     result.activitiesPending = toCreate.length
@@ -256,6 +264,23 @@ export async function syncGarminData(userId: string): Promise<SyncResult> {
   }
 
   return result
+}
+
+async function loadActivityIdsWithSplits(userId: string, activityIds: string[]): Promise<Set<string>> {
+  const ids = [...new Set(activityIds.filter(Boolean))]
+  if (ids.length === 0) return new Set()
+
+  const supabase = createAdminClient()
+  const found = new Set<string>()
+  for (let i = 0; i < ids.length; i += 200) {
+    const { data } = await supabase
+      .from('activity_laps')
+      .select('activity_id')
+      .eq('user_id', userId)
+      .in('activity_id', ids.slice(i, i + 200))
+    for (const row of data ?? []) found.add(row.activity_id)
+  }
+  return found
 }
 
 async function loadRecentActivityMatches(userId: string, since: Date): Promise<ExistingActivity[]> {

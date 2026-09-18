@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   garminActivityId,
+  planListedRideFit,
   selectActivitiesForIncrementalSync,
 } from '@/lib/garmin/incremental-sync'
 
@@ -30,5 +31,40 @@ describe('selectActivitiesForIncrementalSync', () => {
     const activities = [{ activityId: 333, startTimeGMT: '2026-06-01T08:00:00.000Z' }]
     const picked = selectActivitiesForIncrementalSync(activities, new Set(), { now, lookbackDays: 21 })
     expect(picked).toHaveLength(0)
+  })
+})
+
+describe('planListedRideFit', () => {
+  it('still downloads the FIT when a Strava copy already exists without splits', () => {
+    expect(
+      planListedRideFit({
+        storedGarmin: false,
+        storedTimeOk: false,
+        matchedExisting: true,
+        existingHasSplits: false,
+      })
+    ).toBe('download')
+  })
+
+  it('skips the FIT when that copy already has splits', () => {
+    expect(
+      planListedRideFit({
+        storedGarmin: false,
+        storedTimeOk: false,
+        matchedExisting: true,
+        existingHasSplits: true,
+      })
+    ).toBe('skip')
+  })
+
+  it('re-downloads a stored Garmin ride that never got laps', () => {
+    expect(
+      planListedRideFit({
+        storedGarmin: true,
+        storedTimeOk: true,
+        matchedExisting: false,
+        existingHasSplits: false,
+      })
+    ).toBe('download')
   })
 })

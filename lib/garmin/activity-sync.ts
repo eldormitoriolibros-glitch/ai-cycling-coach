@@ -62,8 +62,8 @@ export async function loadExistingGarminIds(
 export async function loadExistingGarminRows(
   userId: string,
   candidateIds: string[]
-): Promise<Map<string, { start_time: string }>> {
-  const map = new Map<string, { start_time: string }>()
+): Promise<Map<string, { id: string; start_time: string }>> {
+  const map = new Map<string, { id: string; start_time: string }>()
   if (candidateIds.length === 0) return map
 
   const supabase = createAdminClient()
@@ -71,14 +71,14 @@ export async function loadExistingGarminRows(
     const chunk = candidateIds.slice(i, i + 200).map((id) => garminStoredExternalId(id))
     const { data } = await supabase
       .from('activities')
-      .select('external_id, start_time')
+      .select('id, external_id, start_time')
       .eq('user_id', userId)
       .eq('source', 'garmin')
       .in('external_id', chunk)
 
     for (const row of data ?? []) {
       if (row.external_id?.startsWith('garmin-')) {
-        map.set(row.external_id.slice('garmin-'.length), { start_time: row.start_time })
+        map.set(row.external_id.slice('garmin-'.length), { id: row.id, start_time: row.start_time })
       }
     }
   }
