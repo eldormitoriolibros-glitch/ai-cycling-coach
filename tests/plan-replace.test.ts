@@ -57,11 +57,11 @@ describe('scheduledIdsToReplace', () => {
     expect(ids).toEqual(['str-1'])
   })
 
-  it('leaves completed sessions and other days alone', () => {
+  it('replaces a completed bike on that day so an extension does not leave a duplicate', () => {
     const ids = scheduledIdsToReplace(
       [friday.doneBike, friday.strength, friday.saturday],
-      [{ scheduled_date: '2026-09-11', workout_type: 'endurance', title: 'Z2' }]
+      [{ scheduled_date: '2026-09-11', workout_type: 'endurance', title: 'Z2 90 min' }]
     )
-    expect(ids).toEqual([])
+    expect(ids).toEqual(['bike-done'])
   })
 })

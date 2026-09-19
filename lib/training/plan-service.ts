@@ -340,7 +340,6 @@ export async function coachPlanToDraft(userId: string, plan: CoachPlanInput): Pr
         .from('workouts')
         .select('id, scheduled_date, workout_type, title, status')
         .eq('user_id', userId)
-        .eq('status', 'scheduled')
         .in('scheduled_date', dates)
     : { data: [] }
 
@@ -375,7 +374,7 @@ async function explain(draft: PlanDraft): Promise<string | null> {
   }
 }
 
-/** Replaces still-scheduled sessions of the same kind on the dates in the draft. */
+/** Replaces same-day same-kind sessions on the dates in the draft, even if already marked. */
 export async function commitWeeklyPlan(
   userId: string,
   draft: PlanDraft,
@@ -390,7 +389,6 @@ export async function commitWeeklyPlan(
     .from('workouts')
     .select('id, scheduled_date, workout_type, title, status')
     .eq('user_id', userId)
-    .eq('status', 'scheduled')
     .in('scheduled_date', dates)
 
   if (existingError) throw new Error(existingError.message)

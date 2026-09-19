@@ -23,8 +23,10 @@ export function workoutSlot(workout: {
 
 /**
  * A Telegram change usually sends only the affected bike (or strength) session.
- * Replacing every scheduled row in the date window would drop the other kind
- * on that day — e.g. shortening today's ride deleted fuerza.
+ * Replacing every row in the date window would drop the other kind on that
+ * day — e.g. shortening today's ride deleted fuerza. Same date+slot is
+ * replaced even if it was marked done: otherwise an extension leaves the
+ * old completed copy next to the new one.
  */
 export function scheduledIdsToReplace(
   existing: ReplaceableSession[],
@@ -38,7 +40,6 @@ export function scheduledIdsToReplace(
   }
 
   return existing
-    .filter((workout) => workout.status === 'scheduled')
     .filter((workout) => slotsByDate.get(workout.scheduled_date)?.has(workoutSlot(workout)))
     .map((workout) => workout.id)
 }
