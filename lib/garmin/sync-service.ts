@@ -75,7 +75,7 @@ export async function syncGarminData(userId: string): Promise<SyncResult> {
     const recentExisting = await loadRecentActivityMatches(userId, cutoff)
     const idsWithSplits = await loadActivityIdsWithSplits(
       userId,
-      [...recentExisting.map((row) => row.id), ...[...existingRows.values()].map((row) => row.id)]
+      [...recentExisting.map((row) => row.id), ...Array.from(existingRows.values()).map((row) => row.id)]
     )
     const taken = new Set<string>()
 
@@ -267,7 +267,7 @@ export async function syncGarminData(userId: string): Promise<SyncResult> {
 }
 
 async function loadActivityIdsWithSplits(userId: string, activityIds: string[]): Promise<Set<string>> {
-  const ids = [...new Set(activityIds.filter(Boolean))]
+  const ids = Array.from(new Set(activityIds.filter(Boolean)))
   if (ids.length === 0) return new Set()
 
   const supabase = createAdminClient()
