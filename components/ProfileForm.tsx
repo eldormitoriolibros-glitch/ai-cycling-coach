@@ -42,6 +42,44 @@ const FALLBACK_ZONES = [
   'America/Sao_Paulo',
 ]
 
+const ZONE_LABEL: Record<string, string> = {
+  'America/Argentina/Buenos_Aires': 'Buenos Aires (Argentina)',
+  'America/Argentina/Cordoba': 'Córdoba (Argentina)',
+  'America/Argentina/Mendoza': 'Mendoza (Argentina)',
+  'America/Argentina/Salta': 'Salta (Argentina)',
+  'Europe/Madrid': 'Madrid (España)',
+  UTC: 'UTC',
+}
+
+const PINNED_ZONES = [
+  'America/Argentina/Buenos_Aires',
+  'America/Argentina/Cordoba',
+  'America/Argentina/Mendoza',
+  'Europe/Madrid',
+  'UTC',
+]
+
+function foldZone(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+}
+
+function zoneLabel(id: string): string {
+  return ZONE_LABEL[id] ?? id.replace(/_/g, ' ')
+}
+
+function zoneMatches(zone: string, query: string): boolean {
+  const q = foldZone(query)
+  if (!q) return true
+  const hay = `${foldZone(zone)} ${foldZone(zoneLabel(zone))}`
+  if (hay.includes(q)) return true
+  return q.split(' ').every((token) => token && hay.includes(token))
+}
+
 export function ProfileForm() {
   const supabase = createClient()
   const [form, setForm] = useState<FormState>(EMPTY)
@@ -50,6 +88,7 @@ export function ProfileForm() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
+  const [tzQuery, setTzQuery] = useState('')
 
   const set = useCallback(<K extends keyof FormState>(key: K, value: FormState[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }))
@@ -61,8 +100,14 @@ export function ProfileForm() {
       typeof Intl.supportedValuesOf === 'function' ? Intl.supportedValuesOf('timeZone') : []
     const detected = Intl.DateTimeFormat().resolvedOptions().timeZone
     const list = supported.length > 0 ? supported : FALLBACK_ZONES
-    return Array.from(new Set([detected, ...list].filter(Boolean)))
-  }, [])
+    const all = Array.from(new Set([detected, ...PINNED_ZONES, ...list].filter(Boolean)))
+    const visible = tzQuery.trim()
+      ? all.filter((zone) => zoneMatches(zone, tzQuery))
+      : all
+    const pinned = PINNED_ZONES.filter((zone) => visible.includes(zone))
+    const rest = visible.filter((zone) => !PINNED_ZONES.includes(zone))
+    return [...pinned, ...rest]
+  }, [tzQuery])
 
   useEffect(() => {
     let cancelled = false
@@ -244,11 +289,24 @@ export function ProfileForm() {
             </Select>
           </Field>
 
-          <Field label="Zona horaria" className="sm:col-span-2" hint="Define en qué día cae cada salida y a qué hora te escribe el entrenador.">
+          <Field
+            label="Zona horaria"
+            className="sm:col-span-2"
+            hint="Si no la ves, buscá «Buenos Aires» o «Argentina»."
+          >
+            <Input
+              value={tzQuery}
+              onChange={(e) => setTzQuery(e.target.value)}
+              placeholder="Buscar: Buenos Aires, Argentina, Madrid…"
+              className="mb-2"
+            />
             <Select value={form.timezone} onChange={(e) => set('timezone', e.target.value)}>
+              {form.timezone && !timeZones.includes(form.timezone) && (
+                <option value={form.timezone}>{zoneLabel(form.timezone)}</option>
+              )}
               {timeZones.map((zone) => (
                 <option key={zone} value={zone}>
-                  {zone}
+                  {zoneLabel(zone)}
                 </option>
               ))}
             </Select>

@@ -58,7 +58,12 @@ export type FitRecordSample = {
 }
 
 function readNumber(value: unknown): number | null {
-  return typeof value === 'number' && Number.isFinite(value) ? value : null
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string' && value.trim()) {
+    const n = Number(value)
+    if (Number.isFinite(n)) return n
+  }
+  return null
 }
 
 function readString(value: unknown): string | null {
@@ -278,8 +283,16 @@ export async function parseFitFile(buffer: ArrayBuffer | Buffer): Promise<Parsed
     const maxSpeed = readNumber(session.max_speed) ?? readNumber(session.maximum_speed) ?? null
     const elevationGain = readNumber(session.total_ascent) ?? readNumber(session.total_elevation_gain) ?? null
 
-    const avgPower = readNumber(session.avg_power) ?? readNumber(session.average_power) ?? null
-    const maxPower = readNumber(session.max_power) ?? readNumber(session.maximum_power) ?? null
+    const sessionRecords = extractSessionRecords(records, session)
+    const recordPowers = sessionRecords
+      .map((sample) => sample.power)
+      .filter((value): value is number => value != null && value > 0)
+    const avgPower =
+      readNumber(session.avg_power) ?? readNumber(session.average_power) ?? mean(recordPowers)
+    const maxPower =
+      readNumber(session.max_power) ??
+      readNumber(session.maximum_power) ??
+      (recordPowers.length ? Math.max(...recordPowers) : null)
     const totalCalories = readNumber(session.total_calories) ?? null
     const kilojoules = totalCalories !== null ? Math.round(totalCalories * 4.184) : null
     const hasPowerMeter = avgPower !== null && avgPower > 0
@@ -317,7 +330,7 @@ export async function parseFitFile(buffer: ArrayBuffer | Buffer): Promise<Parsed
       calories: totalCalories,
       sweatLossMl,
       garminTrainingLoad,
-      records: extractSessionRecords(records, session),
+      records: sessionRecords,
       laps: extractSessionLaps(laps, session),
     }
   })

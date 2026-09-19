@@ -41,6 +41,34 @@ describe('listActivityToParsedFit', () => {
     expect(parsed?.startTime).toBe('2026-08-30T05:45:00.000Z')
   })
 
+  it('reads power from Garmin list aliases', () => {
+    const parsed = listActivityToParsedFit({
+      activityId: 2,
+      activityName: 'Con potenciómetro',
+      startTimeGMT: '2026-09-18T21:00:00.000Z',
+      movingDuration: 3600,
+      distance: 20000,
+      activityType: { typeKey: 'cycling' },
+      averagePower: 121,
+      maximumPower: 540,
+    })
+    expect(parsed).toMatchObject({ avgPower: 121, maxPower: 540, hasPowerMeter: true })
+  })
+
+  it('reads Garmin power when the list sends strings or avgPowerInWatts', () => {
+    const parsed = listActivityToParsedFit({
+      activityId: 3,
+      activityName: 'Potencia string',
+      startTimeGMT: '2026-09-18T21:00:00.000Z',
+      movingDuration: 3600,
+      distance: 20000,
+      activityType: { typeKey: 'cycling' },
+      avgPowerInWatts: '118',
+      maxPowerInWatts: '510',
+    })
+    expect(parsed).toMatchObject({ avgPower: 118, maxPower: 510, hasPowerMeter: true })
+  })
+
   it('prefers beginTimestamp when present', () => {
     const parsed = listActivityToParsedFit({
       activityId: 1,

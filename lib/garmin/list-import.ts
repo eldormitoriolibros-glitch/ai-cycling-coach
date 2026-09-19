@@ -68,8 +68,28 @@ export function listActivityToParsedFit(activity: any): ParsedFitActivity | null
   const durationSeconds = durationSecondsFromList(activity)
   if (!id || !start || !durationSeconds) return null
 
-  const readNum = (v: unknown): number | null =>
-    typeof v === 'number' && Number.isFinite(v) ? v : null
+  const readNum = (v: unknown): number | null => {
+    if (typeof v === 'number' && Number.isFinite(v)) return v
+    if (typeof v === 'string' && v.trim()) {
+      const n = Number(v)
+      if (Number.isFinite(n)) return n
+    }
+    return null
+  }
+  const firstNum = (...values: unknown[]): number | null => {
+    for (const value of values) {
+      const n = readNum(value)
+      if (n != null) return n
+    }
+    return null
+  }
+  const avgPower = firstNum(
+    activity.avgPower,
+    activity.averagePower,
+    activity.avgPowerInWatts,
+    activity.avgWatts,
+    activity.watts
+  )
 
   return {
     garminActivityId: id,
@@ -86,10 +106,15 @@ export function listActivityToParsedFit(activity: any): ParsedFitActivity | null
     avgCadence: readNum(activity.averageBikingCadenceInRevPerMinute),
     maxCadence: readNum(activity.maxBikingCadenceInRevPerMinute),
     elevationGain: readNum(activity.elevationGain),
-    avgPower: readNum(activity.avgPower),
-    maxPower: readNum(activity.maxPower),
+    avgPower,
+    maxPower: firstNum(
+      activity.maxPower,
+      activity.maximumPower,
+      activity.maxPowerInWatts,
+      activity.maxWatts
+    ),
     kilojoules: null,
-    hasPowerMeter: readNum(activity.avgPower) != null,
+    hasPowerMeter: avgPower != null && avgPower > 0,
     avgTemperature: readNum(activity.averageTemperature) ?? readNum(activity.minTemperature),
     maxTemperature: readNum(activity.maxTemperature),
     trainingEffectAerobic: readNum(activity.aerobicTrainingEffect),
