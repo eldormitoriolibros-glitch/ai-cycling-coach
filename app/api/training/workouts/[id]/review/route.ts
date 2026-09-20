@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { linkCompletedActivity, sendSessionReview } from '@/lib/coach/session-review'
-import { syncGarminData } from '@/lib/garmin/sync-service'
+import { REVIEW_GARMIN_SYNC, syncGarminData } from '@/lib/garmin/sync-service'
 import { createClient } from '@/lib/supabase/server'
 
 export const dynamic = 'force-dynamic'
@@ -35,7 +35,7 @@ export async function POST(_request: Request, { params }: { params: { id: string
 
   const isRide = !workout.workout_type || CYCLING_TYPES.has(workout.workout_type)
   if (isRide && !workout.completed_activity_id) {
-    await syncGarminData(user.id).catch(() => null)
+    await syncGarminData(user.id, REVIEW_GARMIN_SYNC).catch(() => null)
     await linkCompletedActivity(user.id, params.id).catch(() => null)
   }
 

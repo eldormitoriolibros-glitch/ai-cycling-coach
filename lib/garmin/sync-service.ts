@@ -8,7 +8,7 @@ import {
   loadThresholds,
   upsertGarminListActivities,
 } from './activity-sync'
-import { planListedRideFit } from './incremental-sync'
+import { capFitDownloads, planListedRideFit } from './incremental-sync'
 import type { ParsedFitActivity } from './fit'
 import { findMatch, type ExistingActivity } from './activity-match'
 import { listActivityToParsedFit, parseGarminListStart } from './list-import'
@@ -36,7 +36,26 @@ export type SyncResult = {
   error?: string
 }
 
-export async function syncGarminData(userId: string): Promise<SyncResult> {
+export type GarminSyncOptions = {
+  lookbackDays?: number
+  maxFitDownloads?: number
+  includeHealth?: boolean
+}
+
+/** Enough to link today's ride without backfilling three weeks of FIT files. */
+export const REVIEW_GARMIN_SYNC: GarminSyncOptions = {
+  lookbackDays: 2,
+  maxFitDownloads: 2,
+  includeHealth: false,
+}
+
+export async function syncGarminData(
+  userId: string,
+  options: GarminSyncOptions = {}
+): Promise<SyncResult> {
+  const lookbackDays = options.lookbackDays ?? 21
+  const maxFitDownloads = options.maxFitDownloads ?? 8
+  const includeHealth = options.includeHealth !== false
   const supabase = createAdminClient()
   const result: SyncResult = {
     activitiesEnriched: 0,
@@ -71,7 +90,7 @@ export async function syncGarminData(userId: string): Promise<SyncResult> {
       .map((a: any) => garminActivityId(a))
       .filter((id): id is string => id != null)
     const existingRows = await loadExistingGarminRows(userId, candidateIds)
-    const cutoff = new Date(Date.now() - 21 * 86_400_000)
+    const cutoff = new Date(Date.now() - lookbackDays * 86_400_000)
     const recentExisting = await loadRecentActivityMatches(userId, cutoff)
     const idsWithSplits = await loadActivityIdsWithSplits(
       userId,
@@ -110,6 +129,7 @@ export async function syncGarminData(userId: string): Promise<SyncResult> {
       if (plan === 'create+download') toCreate.push(parsed)
       toDownload.push(activity)
     }
+    const queuedFits = capFitDownloads(toDownload, maxFitDownloads)
     result.activitiesPending = toCreate.length
 
     if (toCreate.length > 0) {
@@ -120,7 +140,7 @@ export async function syncGarminData(userId: string): Promise<SyncResult> {
     }
 
     const fitActivities: ParsedFitActivity[] = []
-    for (const activity of toDownload) {
+    for (const activity of queuedFits) {
       try {
         const fits = await downloadActivityFits(client, activity)
         if (fits.length > 0) fitActivities.push(...fits)
@@ -143,6 +163,7 @@ export async function syncGarminData(userId: string): Promise<SyncResult> {
   }
 
   // --- Health sync (last 7 days) ---
+  if (includeHealth) {
   try {
     const today = new Date()
     for (let i = 0; i < 7; i++) {
@@ -236,6 +257,7 @@ export async function syncGarminData(userId: string): Promise<SyncResult> {
     }
   } catch (err) {
     console.error('Garmin health sync failed:', err)
+  }
   }
 
   // Recompute loads if activities were touched

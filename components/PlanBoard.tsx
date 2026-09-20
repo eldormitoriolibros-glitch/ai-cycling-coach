@@ -10,7 +10,7 @@ import type { WorkoutStatus } from '@/lib/types/database'
 import { looksCombined, looksStrength, splitCombinedSession } from '@/lib/training/split-sessions'
 import { addDays, eachDay, endOfWeek, formatWeekRange, startOfWeek } from '@/lib/training/dates'
 import { SessionCard } from '@/components/plan/SessionCard'
-import { requestSessionReview, updateWorkoutStatus } from '@/components/plan/mark-workout'
+import { REVIEW_AFTER_MARK_NOTE, requestSessionReview, updateWorkoutStatus } from '@/components/plan/mark-workout'
 import { WorkoutStatusActions } from '@/components/plan/WorkoutStatusActions'
 
 export type ScheduledWorkout = {
@@ -197,9 +197,8 @@ export function PlanBoard({
           ? 'Listo: el entrenador te mandó la devolución de la sesión.'
           : 'Sesión marcada como hecha.'
       )
-    } catch (err) {
-      setSuccess(null)
-      setError(err instanceof Error ? err.message : 'No se pudo generar la devolución.')
+    } catch {
+      setSuccess(REVIEW_AFTER_MARK_NOTE)
     } finally {
       setReviewing(null)
       router.refresh()

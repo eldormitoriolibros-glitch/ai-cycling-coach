@@ -29,6 +29,14 @@ export function planListedRideFit(input: {
  * fetched so new rides and Strava-only rows waiting for FIT enrichment are
  * both covered.
  */
+/** Newest Garmin list rows first, then keep at most `max` for FIT download. */
+export function capFitDownloads(activities: any[], max: number): any[] {
+  if (!Number.isFinite(max) || max < 0) return activities
+  return [...activities]
+    .sort((a, b) => (parseListStart(b)?.getTime() ?? 0) - (parseListStart(a)?.getTime() ?? 0))
+    .slice(0, max)
+}
+
 export function selectActivitiesForIncrementalSync(
   activities: any[],
   existingGarminIds: Set<string>,

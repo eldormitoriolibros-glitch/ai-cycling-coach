@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import type { WorkoutStatus } from '@/lib/types/database'
-import { requestSessionReview, updateWorkoutStatus } from './mark-workout'
+import { REVIEW_AFTER_MARK_NOTE, requestSessionReview, updateWorkoutStatus } from './mark-workout'
 
 export function useWorkoutStatus() {
   const router = useRouter()
@@ -24,12 +24,16 @@ export function useWorkoutStatus() {
       }
 
       setSuccess('Sesión marcada. El entrenador está analizándola…')
-      const result = await requestSessionReview(id)
-      setSuccess(
-        result.sent
-          ? 'Listo: el entrenador te mandó la devolución de la sesión.'
-          : 'Sesión marcada como hecha.'
-      )
+      try {
+        const result = await requestSessionReview(id)
+        setSuccess(
+          result.sent
+            ? 'Listo: el entrenador te mandó la devolución de la sesión.'
+            : 'Sesión marcada como hecha.'
+        )
+      } catch {
+        setSuccess(REVIEW_AFTER_MARK_NOTE)
+      }
       router.refresh()
     } catch (err) {
       setSuccess(null)

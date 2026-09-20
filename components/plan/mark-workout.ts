@@ -8,8 +8,18 @@ export async function updateWorkoutStatus(id: string, status: WorkoutStatus): Pr
 }
 
 export async function requestSessionReview(id: string): Promise<{ sent: boolean }> {
-  const response = await fetch(`/api/training/workouts/${id}/review`, { method: 'POST' })
-  const body = await response.json().catch(() => ({}))
-  if (!response.ok) throw new Error(body.error ?? 'No se pudo generar la devolución.')
-  return { sent: Boolean(body.sent) }
+  try {
+    const response = await fetch(`/api/training/workouts/${id}/review`, { method: 'POST' })
+    const body = await response.json().catch(() => ({}))
+    if (!response.ok) throw new Error(body.error ?? 'No se pudo generar la devolución.')
+    return { sent: Boolean(body.sent) }
+  } catch (err) {
+    if (err instanceof TypeError) {
+      throw new Error(REVIEW_AFTER_MARK_NOTE)
+    }
+    throw err
+  }
 }
+
+export const REVIEW_AFTER_MARK_NOTE =
+  'Sesión marcada como hecha. La devolución no salió ahora; pedísela al entrenador en un rato.'

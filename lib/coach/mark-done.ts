@@ -1,5 +1,5 @@
 import { createAdminClient } from '@/lib/supabase/admin'
-import { syncGarminData } from '@/lib/garmin/sync-service'
+import { REVIEW_GARMIN_SYNC, syncGarminData } from '@/lib/garmin/sync-service'
 import { looksStrength } from '@/lib/training/split-sessions'
 import { localDateKey } from '@/lib/training/dates'
 import { linkCompletedActivity } from './session-review'
@@ -50,7 +50,7 @@ export async function markTodaySessionDone(
   await supabase.from('workouts').update({ status: 'completed' }).eq('id', pending.id)
 
   if (scope === 'bike') {
-    await syncGarminData(userId).catch(() => null)
+    await syncGarminData(userId, REVIEW_GARMIN_SYNC).catch(() => null)
     await linkCompletedActivity(userId, pending.id).catch(() => null)
   }
 

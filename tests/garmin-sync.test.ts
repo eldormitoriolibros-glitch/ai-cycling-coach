@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  capFitDownloads,
   garminActivityId,
   planListedRideFit,
   selectActivitiesForIncrementalSync,
@@ -66,5 +67,19 @@ describe('planListedRideFit', () => {
         existingHasSplits: false,
       })
     ).toBe('download')
+  })
+})
+
+describe('capFitDownloads', () => {
+  it('keeps the newest rides when the FIT queue is capped', () => {
+    const picked = capFitDownloads(
+      [
+        { activityId: 1, startTimeGMT: '2026-09-10T10:00:00.000Z' },
+        { activityId: 2, startTimeGMT: '2026-09-18T21:00:00.000Z' },
+        { activityId: 3, startTimeGMT: '2026-09-16T06:00:00.000Z' },
+      ],
+      2
+    )
+    expect(picked.map((row) => garminActivityId(row))).toEqual(['2', '3'])
   })
 })
