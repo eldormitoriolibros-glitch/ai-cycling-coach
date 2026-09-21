@@ -39,6 +39,34 @@ describe('parseWorkoutBlocks', () => {
     expect(rows.find((r) => r.exercise === 'Sentadillas')).toMatchObject({ sets: '3', reps: '12' })
   })
 
+  it('keeps each exercise’s own sets, and treats 45s as seconds', () => {
+    const rows = strengthExercises(
+      'Movilidad articular 5 min. 3×45s plancha frontal, 3×10 perro de caza (bird-dog), 3×10 plancha lateral por lado. Cierre 5 min estiramiento.',
+      'Fuerza core y movilidad'
+    )
+    expect(rows.map((r) => r.exercise)).toEqual([
+      'Movilidad articular',
+      'Plancha frontal',
+      'Perro de caza (bird-dog)',
+      'Plancha lateral',
+      'Cierre',
+    ])
+    expect(rows.find((r) => r.exercise === 'Plancha frontal')).toMatchObject({ sets: '3', reps: '45 s' })
+    expect(rows.find((r) => r.exercise === 'Perro de caza (bird-dog)')).toMatchObject({ sets: '3', reps: '10' })
+    expect(rows.find((r) => r.exercise === 'Plancha lateral')).toMatchObject({ sets: '3', reps: '10 / lado' })
+    expect(rows.find((r) => r.exercise === 'Movilidad articular')).toMatchObject({ sets: '1', reps: '5 min' })
+  })
+
+  it('does not paint the first scheme onto every later exercise', () => {
+    const rows = strengthExercises(
+      'Movilidad articular 5 min. 3×12 puente de glúteo, 3×10 perro de caza (bird-dog), 3×10 plancha lateral por lado. Cierre 5 min.',
+      'Core y movilidad'
+    )
+    expect(rows.find((r) => r.exercise === 'Puente de glúteo')).toMatchObject({ sets: '3', reps: '12' })
+    expect(rows.find((r) => r.exercise === 'Perro de caza (bird-dog)')).toMatchObject({ sets: '3', reps: '10' })
+    expect(rows.some((r) => r.exercise === 'Core')).toBe(false)
+  })
+
   it('uses an upper-body table when the session is torso/core, not the leg template', () => {
     const rows = strengthExercises(
       'Rutina de torso y zona media: remos con banda/mancuerna, empujes, spinales y core anti-rotación.',

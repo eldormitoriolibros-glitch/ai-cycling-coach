@@ -240,15 +240,93 @@ export function strengthExercises(
   description: string | null | undefined,
   title?: string | null
 ): StrengthExercise[] {
-  const blob = [title, description].filter(Boolean).join('. ').replace(/\s+/g, ' ').trim()
-  const named = parseNamedStrengthExercises(blob)
-  if (named.length >= 2) return wrapStrengthSession(named, parseStrengthScheme(blob))
+  const text = (description ?? '').replace(/\s+/g, ' ').trim()
+  const structured = parseStructuredStrength(text)
+  if (structured.length >= 2) return structured
 
-  const text = blob.toLowerCase()
-  if (UPPER_HINT.test(text) && !LOWER_HINT.test(text)) return DEFAULT_UPPER
-  if (!text.trim() || GENERIC_STRENGTH.test(text)) return DEFAULT_STRENGTH
-  if (UPPER_HINT.test(text)) return DEFAULT_UPPER
+  const named = parseNamedStrengthExercises(text)
+  if (named.length >= 2) return wrapStrengthSession(named, parseStrengthScheme(text))
+
+  const hint = [title, text].filter(Boolean).join('. ').toLowerCase()
+  if (UPPER_HINT.test(hint) && !LOWER_HINT.test(hint)) return DEFAULT_UPPER
+  if (!hint.trim() || GENERIC_STRENGTH.test(hint)) return DEFAULT_STRENGTH
+  if (UPPER_HINT.test(hint)) return DEFAULT_UPPER
   return DEFAULT_STRENGTH
+}
+
+/**
+ * "Movilidad articular 5 min. 3×45s plancha frontal, 3×10 perro de caza, cierre 5 min."
+ * Each move keeps its own sets and reps. A trailing "3x12" on a name list does not.
+ */
+function parseStructuredStrength(text: string): StrengthExercise[] {
+  if (!text) return []
+  const token =
+    /(?:(movilidad(?:\s+articular)?|cierre|estiramiento|entrada(?:\s+en\s+calor)?|vuelta(?:\s+a\s+la\s+calma)?)\s+(\d+)\s*min(?:utos)?(?:\s+(estiramiento))?)|(?:(\d+)\s*[x×]\s*(\d+)\s*(s|seg(?:undos)?|min(?:utos)?)?\s+([^,.;]+))/gi
+  const rows: StrengthExercise[] = []
+  for (const match of text.matchAll(token)) {
+    if (match[1] && match[2]) {
+      rows.push(timedStrengthRow(match[1], match[2], match[3]))
+    } else if (match[4] && match[5] && match[7]) {
+      rows.push(schemeStrengthRow(match[4], match[5], match[6], match[7]))
+    }
+  }
+  const work = rows.filter((row) => !isStrengthBookend(row.exercise))
+  if (work.length < 1) return []
+  return ensureStrengthBookends(rows)
+}
+
+function timedStrengthRow(kind: string, minutes: string, extra?: string): StrengthExercise {
+  const closing = /cierre|estiramiento|vuelta/i.test(kind)
+  return {
+    exercise: capitalizeExercise(kind),
+    sets: '1',
+    reps: `${minutes} min`,
+    note: closing
+      ? extra
+        ? 'Estiramiento, sin fatiga'
+        : 'Cierre, sin fatiga'
+      : 'Sin carga, rango amplio',
+  }
+}
+
+function schemeStrengthRow(
+  sets: string,
+  reps: string,
+  unit: string | undefined,
+  rawName: string
+): StrengthExercise {
+  let name = rawName.trim().replace(/[.\s]+$/g, '')
+  const side = /\bpor\s+lado$/i.test(name)
+  if (side) name = name.replace(/\s+por\s+lado$/i, '').trim()
+  const unitLabel = !unit
+    ? ''
+    : /^s|^seg/i.test(unit)
+      ? ' s'
+      : ' min'
+  return {
+    exercise: capitalizeExercise(name),
+    sets,
+    reps: `${reps}${unitLabel}${side ? ' / lado' : ''}`,
+    note: noteForExercise(name),
+  }
+}
+
+function isStrengthBookend(name: string): boolean {
+  return /movilidad|entrada|cierre|estiramiento|vuelta|enfriamiento/i.test(name)
+}
+
+function ensureStrengthBookends(rows: StrengthExercise[]): StrengthExercise[] {
+  const hasWarmup = rows.some((row) => /movilidad|entrada|calentamiento/i.test(row.exercise))
+  const hasCooldown = rows.some((row) => /vuelta|cierre|enfriamiento|estiramiento/i.test(row.exercise))
+  return [
+    ...(hasWarmup
+      ? []
+      : [{ exercise: 'Movilidad de entrada', sets: '1', reps: '5 min', note: 'Hombros, tórax, cadera' }]),
+    ...rows,
+    ...(hasCooldown
+      ? []
+      : [{ exercise: 'Vuelta: movilidad suave', sets: '1', reps: '3 min', note: 'Cierre, sin fatiga' }]),
+  ]
 }
 
 function parseStrengthScheme(text: string): { sets: string; reps: string } | null {
@@ -289,17 +367,7 @@ function wrapStrengthSession(
       note: noteForExercise(name),
     }
   })
-  const hasWarmup = work.some((row) => /movilidad|entrada|calentamiento/i.test(row.exercise))
-  const hasCooldown = work.some((row) => /vuelta|cierre|enfriamiento/i.test(row.exercise))
-  return [
-    ...(hasWarmup
-      ? []
-      : [{ exercise: 'Movilidad de entrada', sets: '1', reps: '5 min', note: 'Hombros, tórax, cadera' }]),
-    ...work,
-    ...(hasCooldown
-      ? []
-      : [{ exercise: 'Vuelta: movilidad suave', sets: '1', reps: '3 min', note: 'Cierre, sin fatiga' }]),
-  ]
+  return ensureStrengthBookends(work)
 }
 
 function looksCoreExercise(name: string): boolean {
