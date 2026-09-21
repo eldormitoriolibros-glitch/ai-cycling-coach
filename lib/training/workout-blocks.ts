@@ -36,9 +36,11 @@ const UPPER_HINT =
   /torso|superior|zona media|upper|push[\s-]?pull|remos?|empujes?|press|spinal|anti-?rotaci|sin cargar las piernas|no (?:cargar|trabajar) (?:las )?piernas/i
 const LOWER_HINT = /piernas?|sentadilla|squat|peso muerto|rdl|prensa|hip hinge/i
 
+import { hasIntervalSeries } from './session-notes'
 import {
   expandIntervalShorthand,
   looksGenericEnduranceText,
+  looksGroupRide,
   parseCompactIntervals,
   parseRestMinutes,
 } from './session-prescription'
@@ -127,6 +129,27 @@ export function dedupeWarmupCooldownProse(text: string | null | undefined): stri
  * `mainWork` may already mention entrada/vuelta; those sentences are stripped
  * so they are not written twice.
  */
+/** Entrada / rodada / vuelta that fit the booked time. No series, no invented watts. */
+export function groupRideBlocks(totalMinutes: number): WorkoutBlock[] {
+  const total = Math.max(30, totalMinutes)
+  const { warmup, cooldown } = warmupCooldownMinutes('endurance', total)
+  return [
+    { label: 'Entrada en calor', minutes: warmup, repeats: null, intensity: 'Z1–Z2' },
+    {
+      label: 'Rodada',
+      minutes: Math.max(10, total - warmup - cooldown),
+      repeats: null,
+      intensity: 'grupeta',
+    },
+    { label: 'Vuelta a la calma', minutes: cooldown, repeats: null, intensity: 'Z1' },
+  ]
+}
+
+export function formatGroupRideDescription(totalMinutes: number): string {
+  const [warmup, main, cooldown] = groupRideBlocks(totalMinutes)
+  return `${warmup.minutes} min de entrada en calor en Z1–Z2. ${main.minutes} min de rodada en grupeta. ${cooldown.minutes} min de vuelta a la calma en Z1.`
+}
+
 export function formatBikeDescription(input: {
   kind: string
   totalMinutes: number
@@ -152,6 +175,12 @@ export function buildBikeSessionDescription(input: {
   rawDescription?: string | null
   templateMainWork: string
 }): string {
+  if (
+    looksGroupRide(input.title, input.rawDescription) &&
+    !hasIntervalSeries(input.title, input.rawDescription)
+  ) {
+    return formatGroupRideDescription(input.minutes)
+  }
   const rawDescription = input.rawDescription?.trim() ?? ''
   const fromTitle = expandIntervalShorthand(input.title, rawDescription)
   const structured =
@@ -189,6 +218,9 @@ export function commitSessionDescription(input: {
   templateMainWork: string
 }): string {
   const raw = input.rawDescription?.trim() ?? ''
+  if (looksGroupRide(input.title, raw) && !hasIntervalSeries(input.title, raw)) {
+    return formatGroupRideDescription(input.minutes).slice(0, 1000)
+  }
   if (input.kind === 'strength') {
     return (raw || `${input.templateMainWork}.`).slice(0, 1000)
   }
@@ -305,6 +337,9 @@ export function blocksForBikeSession(input: {
   title?: string | null
 }): WorkoutBlock[] {
   const title = (input.title ?? '').replace(/\s+/g, ' ').trim()
+  if (looksGroupRide(title, input.description) && !hasIntervalSeries(title, input.description)) {
+    return groupRideBlocks(input.minutes && input.minutes > 0 ? input.minutes : 60)
+  }
   const text = [title, input.description ?? ''].filter(Boolean).join('. ').replace(/\s+/g, ' ').trim()
   const blocks: WorkoutBlock[] = []
   const compact = parseCompactIntervals(title) ?? parseCompactIntervals(input.description)

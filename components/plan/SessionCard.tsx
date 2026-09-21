@@ -5,15 +5,20 @@ import Link from 'next/link'
 import { Activity } from 'lucide-react'
 import type { WorkoutStatus } from '@/lib/types/database'
 import { looksStrength } from '@/lib/training/split-sessions'
-import { blocksForBikeSession, strengthExercises } from '@/lib/training/workout-blocks'
-import { considerationsFor, SESSION_KIND_OPTIONS } from '@/lib/training/session-notes'
+import {
+  blocksForBikeSession,
+  dedupeWarmupCooldownProse,
+  formatBikeDescription,
+  strengthExercises,
+} from '@/lib/training/workout-blocks'
+import { considerationsFor, hasIntervalSeries, SESSION_KIND_OPTIONS } from '@/lib/training/session-notes'
 import {
   expandIntervalShorthand,
   looksGenericEnduranceText,
+  looksGroupRide,
   resolveSessionKind,
   resolveSessionZone,
 } from '@/lib/training/session-prescription'
-import { dedupeWarmupCooldownProse, formatBikeDescription } from '@/lib/training/workout-blocks'
 
 export type PlanSession = {
   id?: string
@@ -45,7 +50,8 @@ function statusClass(status: WorkoutStatus): string {
   return 'bg-sky-500/15 text-sky-800 dark:text-sky-300'
 }
 
-function kindLabel(kind: string | null | undefined): string {
+function kindLabel(kind: string | null | undefined, groupRide = false): string {
+  if (groupRide) return 'Grupeta'
   return SESSION_KIND_OPTIONS.find((k) => k.id === kind)?.label ?? (kind === 'strength' ? 'Fuerza' : 'Bici')
 }
 
@@ -93,11 +99,20 @@ export function SessionCard({
     kind,
   })
   const strength = looksStrength(session.title, kind)
+  const groupRide = looksGroupRide(session.title, session.description)
+  const groupWork = groupRide && hasIntervalSeries(session.title, session.description)
   const strengthRows = strength ? strengthExercises(session.description, session.title) : []
-  const tip = considerationsFor(kind)
+  const tip = groupRide
+    ? null
+    : considerationsFor({
+        kind,
+        title: session.title,
+        description: session.description,
+      })
   const fromTitle = expandIntervalShorthand(session.title, session.description)
-  const description =
-    fromTitle && looksGenericEnduranceText(session.description)
+  const description = groupRide && !groupWork
+    ? null
+    : fromTitle && looksGenericEnduranceText(session.description)
       ? formatBikeDescription({
           kind,
           totalMinutes: session.duration_minutes ?? 60,
@@ -109,14 +124,15 @@ export function SessionCard({
   const bikeBlocks = strength
     ? []
     : blocksForBikeSession({
-        description,
+        description: groupRide ? session.description : description,
         minutes: session.duration_minutes,
         zone,
         kind,
         title: session.title,
       })
-  const purpose =
-    kind === 'threshold' && /base aer/i.test(session.purpose ?? '')
+  const purpose = groupRide
+    ? session.purpose
+    : kind === 'threshold' && /base aer/i.test(session.purpose ?? '')
       ? 'Empujar el FTP: bloques de calidad en Z4 / Sweet Spot, no un rodaje de conversación.'
       : session.purpose
 
@@ -146,12 +162,12 @@ export function SessionCard({
             <p className="text-sm font-medium text-foreground">{session.title ?? 'Sesión'}</p>
           </div>
           <p className="mt-1 text-xs text-muted">
-            {zone ? zone : null}
-            {zone && session.target_power != null ? ' · ' : null}
-            {session.target_power != null ? `${session.target_power} W` : null}
-            {(zone || session.target_power != null) && extra ? ' · ' : null}
+            {groupRide ? (groupWork && zone ? `Grupeta · ${zone}` : 'Grupeta') : zone ? zone : null}
+            {!groupRide && zone && session.target_power != null ? ' · ' : null}
+            {!groupRide && session.target_power != null ? `${session.target_power} W` : null}
+            {(groupRide || zone || session.target_power != null) && extra ? ' · ' : null}
             {extra ? `carga ${extra.replace(/^carga\s+/i, '')}` : null}
-            {!zone && session.target_power == null && !extra ? kindLabel(kind) : null}
+            {!groupRide && !zone && session.target_power == null && !extra ? kindLabel(kind) : null}
             <span className="ml-2 text-accent-600 dark:text-accent-400">
               {open ? 'Ocultar detalle' : 'Ver diseño'}
             </span>
@@ -179,7 +195,7 @@ export function SessionCard({
 
       {open && (
         <div className="space-y-3 border-t border-surface pt-3">
-          <dl className="grid grid-cols-2 gap-2 text-[11px] sm:grid-cols-5">
+          <dl className={`grid grid-cols-2 gap-2 text-[11px] ${groupRide ? 'sm:grid-cols-2' : 'sm:grid-cols-5'}`}>
             <div>
               <dt className="text-muted">Duración</dt>
               <dd className="text-sm font-semibold tabular-nums">
@@ -188,20 +204,24 @@ export function SessionCard({
             </div>
             <div>
               <dt className="text-muted">Tipo</dt>
-              <dd>{kindLabel(kind)}</dd>
+              <dd>{kindLabel(kind, groupRide)}</dd>
             </div>
-            <div>
-              <dt className="text-muted">Zona</dt>
-              <dd>{zone}</dd>
-            </div>
-            <div>
-              <dt className="text-muted">Potencia</dt>
-              <dd>{session.target_power != null ? `${session.target_power} W` : '—'}</dd>
-            </div>
-            <div>
-              <dt className="text-muted">Pulso</dt>
-              <dd>{session.target_hr != null ? `${session.target_hr} ppm` : '—'}</dd>
-            </div>
+            {!groupRide && (
+              <>
+                <div>
+                  <dt className="text-muted">Zona</dt>
+                  <dd>{zone}</dd>
+                </div>
+                <div>
+                  <dt className="text-muted">Potencia</dt>
+                  <dd>{session.target_power != null ? `${session.target_power} W` : '—'}</dd>
+                </div>
+                <div>
+                  <dt className="text-muted">Pulso</dt>
+                  <dd>{session.target_hr != null ? `${session.target_hr} ppm` : '—'}</dd>
+                </div>
+              </>
+            )}
           </dl>
 
           {purpose && (
@@ -213,7 +233,9 @@ export function SessionCard({
 
           {bikeBlocks.length > 0 && (
             <section>
-              <h3 className="text-[10px] font-semibold uppercase tracking-wide text-muted">Diseño / series</h3>
+              <h3 className="text-[10px] font-semibold uppercase tracking-wide text-muted">
+                {groupRide && !groupWork ? 'Bloques' : 'Diseño / series'}
+              </h3>
               <div className="mt-1 overflow-x-auto">
                 <table className="w-full text-left text-[11px]">
                   <thead>
@@ -288,7 +310,7 @@ export function SessionCard({
             </Link>
           )}
 
-          {(tip || session.rationale) && (
+          {!groupRide && (tip || session.rationale) && (
             <section>
               <h3 className="text-[10px] font-semibold uppercase tracking-wide text-muted">A tener en cuenta</h3>
               {tip && <p className="mt-0.5 text-xs text-foreground">{tip}</p>}

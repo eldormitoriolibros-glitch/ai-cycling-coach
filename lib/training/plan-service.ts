@@ -12,7 +12,7 @@ import {
 import { computeReadiness } from '@/lib/training/readiness'
 import { scheduledIdsToReplace } from './plan-replace'
 import { splitCombinedSession } from './split-sessions'
-import { resolveSessionKind, resolveSessionZone } from './session-prescription'
+import { looksGroupRide, resolveSessionKind, resolveSessionZone } from './session-prescription'
 import { commitSessionDescription } from './workout-blocks'
 
 import 'server-only'
@@ -294,8 +294,15 @@ export async function coachPlanToDraft(userId: string, plan: CoachPlanInput): Pr
       description: w.description,
       kind,
     }).slice(0, 20)
-    const power = kind === 'strength' || !ftp || !template.powerFactor ? null : Math.round(ftp * template.powerFactor)
-    const hr = kind === 'strength' || !maxHr || !template.hrFactor ? null : Math.round(maxHr * template.hrFactor)
+    const groupRide = looksGroupRide(w.title, w.description)
+    const power =
+      groupRide || kind === 'strength' || !ftp || !template.powerFactor
+        ? null
+        : Math.round(ftp * template.powerFactor)
+    const hr =
+      groupRide || kind === 'strength' || !maxHr || !template.hrFactor
+        ? null
+        : Math.round(maxHr * template.hrFactor)
     const description = commitSessionDescription({
       kind,
       minutes,
@@ -311,7 +318,7 @@ export async function coachPlanToDraft(userId: string, plan: CoachPlanInput): Pr
       title: (w.title?.trim() || template.title).slice(0, 120),
       description,
       duration_minutes: minutes,
-      target_zone: zone,
+      target_zone: groupRide ? 'grupeta' : zone,
       target_power: power != null ? Math.min(1000, Math.max(30, power)) : null,
       target_hr: hr != null ? Math.min(250, Math.max(60, hr)) : null,
       purpose: (w.purpose?.trim() || template.purpose).slice(0, 500),

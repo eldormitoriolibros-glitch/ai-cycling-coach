@@ -105,6 +105,10 @@ Elegí la mezcla según el techo de bici del contexto (no un 80/20 fijo):
   suficiente para repetir la potencia, no un trote de 30 s.
 - VO2 (Z5): intervalos de 3–5 min (a veces 30/30) con recuperación
   casi completa. Pocas series de calidad > muchas series muertas.
+- Grupeta / rodada grupal: por defecto solo duración + entrada / rodada /
+  vuelta. El grupo pone el ritmo y a veces mete un trabajo (pasadas,
+  relevos, 4x5). Si hay un trabajo escrito, dejalo en los bloques; si no,
+  no lo inventes. Sin watts ni pulso objetivo. target_zone "grupeta".
 - Entrada y vuelta van DENTRO del tiempo total. No las omitas en el
   JSON. No las dupliques. Típico: 10–15 min Z1–Z2 y 8–10 min Z1, salvo
   que el diseño pida otra cosa y sume el total.

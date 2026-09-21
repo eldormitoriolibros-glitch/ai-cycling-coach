@@ -72,11 +72,18 @@ export function inferZoneFromText(text: string | null | undefined): string | nul
   return z ? `Z${z[1]}` : null
 }
 
+export function looksGroupRide(...texts: Array<string | null | undefined>): boolean {
+  return /grupal|grupeta|con el grupo|salida de grupo|group ride/i.test(texts.filter(Boolean).join(' '))
+}
+
 export function inferKindFromText(text: string | null | undefined): SessionKind | null {
   const raw = (text ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
   if (!raw.trim()) return null
   if (/\b(fuerza|strength|gym|gimnasio|core)\b/.test(raw)) return 'strength'
-  if (/vo2|\bz5\b/.test(raw)) return 'vo2max'
+  // A range like Z3–Z5 is the ceiling of a group ride, not a VO2 session.
+  const explicitVo2 = /vo2/.test(raw)
+  const loneZ5 = /\bz5\b/.test(raw) && !/z[1-4]\s*[–-]\s*z5/.test(raw)
+  if (explicitVo2 || (loneZ5 && !looksGroupRide(raw))) return 'vo2max'
   if (/\b(threshold|umbral|ftp|sweet\s*spot|sst|z4)\b/.test(raw)) return 'threshold'
   if (/\b(tempo|z3)\b/.test(raw)) return 'tempo'
   if (/\b(long|largo)\b/.test(raw)) return 'long'
@@ -100,9 +107,17 @@ export function resolveSessionKind(input: {
   const fromType = inferKindFromText(input.type) ?? (input.type as SessionKind | undefined)
   const fromText = inferKindFromText([input.title, input.description, input.zone].filter(Boolean).join(' '))
   const typed = fromType && fromType in KIND_RANK ? fromType : 'endurance'
-  if (fromText && KIND_RANK[fromText] > KIND_RANK[typed]) return fromText
-  if (typed !== 'endurance') return typed
-  return fromText ?? 'endurance'
+  const resolved =
+    fromText && KIND_RANK[fromText] > KIND_RANK[typed]
+      ? fromText
+      : typed !== 'endurance'
+        ? typed
+        : (fromText ?? 'endurance')
+  // A stored "vo2max" type still wins unless the text is clearly a group ride.
+  if (resolved === 'vo2max' && looksGroupRide(input.title, input.description) && !/vo2/i.test(`${input.title ?? ''} ${input.description ?? ''}`)) {
+    return fromText && fromText !== 'vo2max' ? fromText : 'threshold'
+  }
+  return resolved
 }
 
 export function resolveSessionZone(input: {

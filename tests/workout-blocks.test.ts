@@ -169,6 +169,61 @@ describe('buildBikeSessionDescription', () => {
   })
 })
 
+describe('group ride plan', () => {
+  it('keeps only duration and three basic blocks, ignoring a written interval plan', () => {
+    const blocks = blocksForBikeSession({
+      title: 'Salida grupal de intensidad',
+      description:
+        '20 min de entrada en calor en Z1. 75 min de trabajo de intensidad en grupeta con relevos y cambios de ritmo (Z3-Z5). 10 min de lavado de piernas. 15 min de vuelta a la calma en Z1.',
+      minutes: 120,
+      zone: 'Z4',
+      kind: 'vo2max',
+    })
+    expect(blocks.map((b) => b.label)).toEqual(['Entrada en calor', 'Rodada', 'Vuelta a la calma'])
+    expect(blocks.reduce((sum, b) => sum + (b.minutes ?? 0), 0)).toBe(120)
+    expect(blocks[1]).toMatchObject({ intensity: 'grupeta' })
+  })
+
+  it('persists a short grupeta description instead of the coach interval prose', () => {
+    const text = commitSessionDescription({
+      kind: 'threshold',
+      minutes: 120,
+      zone: 'Z4',
+      title: 'Salida grupal de intensidad',
+      rawDescription: '75 min de trabajo de intensidad en grupeta con relevos (Z3-Z5).',
+      templateMainWork: 'Ritmo constante en Z2',
+    })
+    expect(text).toMatch(/rodada en grupeta/)
+    expect(text).not.toMatch(/relevos/)
+    expect(text).not.toMatch(/Z3/)
+  })
+
+  it('keeps a written group-ride workout instead of flattening it', () => {
+    const blocks = blocksForBikeSession({
+      title: 'Salida grupal + 4x5m Z4',
+      description: '15 min de entrada. 4 bloques de 5 min en Z4 con 3 min suaves. 10 min de vuelta.',
+      minutes: 90,
+      zone: 'Z4',
+      kind: 'threshold',
+    })
+    expect(blocks.some((b) => b.label === 'Intervalos')).toBe(true)
+    expect(blocks.find((b) => b.label === 'Intervalos')).toMatchObject({
+      repeats: 4,
+      minutes: 5,
+    })
+
+    const text = commitSessionDescription({
+      kind: 'threshold',
+      minutes: 90,
+      zone: 'Z4',
+      title: 'Salida grupal + 4x5m Z4',
+      rawDescription: '4 bloques de 5 min en Z4 con 3 min suaves entre cada uno.',
+      templateMainWork: 'Ritmo constante en Z2',
+    })
+    expect(text).toMatch(/4 bloques de 5 min/)
+  })
+})
+
 describe('commitSessionDescription', () => {
   it('persists the coach description instead of wrapping it with template blocks', () => {
     const coach =
