@@ -284,24 +284,28 @@ export function assessFormStatus(input: {
   }
 }
 
-/** Tailwind-ish tone classes for a band (works in light + dark). */
+/**
+ * Tailwind-ish tone classes for a band (works in light + dark). `hex` is the
+ * same colour for SVG charts, which cannot take a utility class as a fill.
+ */
 export function bandTone(band: BandId | null): {
   text: string
   bar: string
   soft: string
+  hex: string
 } {
   switch (band) {
     case 'very_low':
-      return { text: 'text-red-500', bar: 'bg-red-500', soft: 'bg-red-500/15' }
+      return { text: 'text-red-500', bar: 'bg-red-500', soft: 'bg-red-500/15', hex: '#ef4444' }
     case 'low':
-      return { text: 'text-amber-500', bar: 'bg-amber-500', soft: 'bg-amber-500/15' }
+      return { text: 'text-amber-500', bar: 'bg-amber-500', soft: 'bg-amber-500/15', hex: '#f59e0b' }
     case 'normal':
-      return { text: 'text-emerald-500', bar: 'bg-emerald-500', soft: 'bg-emerald-500/15' }
+      return { text: 'text-emerald-500', bar: 'bg-emerald-500', soft: 'bg-emerald-500/15', hex: '#10b981' }
     case 'high':
-      return { text: 'text-sky-500', bar: 'bg-sky-500', soft: 'bg-sky-500/15' }
+      return { text: 'text-sky-500', bar: 'bg-sky-500', soft: 'bg-sky-500/15', hex: '#0ea5e9' }
     case 'very_high':
-      return { text: 'text-violet-500', bar: 'bg-violet-500', soft: 'bg-violet-500/15' }
+      return { text: 'text-violet-500', bar: 'bg-violet-500', soft: 'bg-violet-500/15', hex: '#8b5cf6' }
     default:
-      return { text: 'text-muted', bar: 'bg-slate-400', soft: 'bg-slate-500/10' }
+      return { text: 'text-muted', bar: 'bg-slate-400', soft: 'bg-slate-500/10', hex: '#94a3b8' }
   }
 }

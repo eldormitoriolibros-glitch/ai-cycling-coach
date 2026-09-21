@@ -10,6 +10,7 @@ import { readinessFrom } from '@/lib/training/readiness-input'
 import { loadPreviousSnapshot } from '@/lib/training/snapshot'
 import { formatLoadSeries, formatPowerContext, formatExecution, formatCycleHistory } from './execution'
 import { formatTrainingBrief } from '@/lib/training/coach-brief'
+import { hasPedalData, summarizePedalTrend, type PedalMetrics } from '@/lib/garmin/pedal-metrics'
 import { suggestIntensityDistribution } from './doctrine'
 
 import 'server-only'
@@ -40,7 +41,7 @@ export async function buildAthleteContext(userId: string): Promise<string> {
       supabase
         .from('activities')
         .select(
-          'id, start_time, title, sport_type, distance_meters, moving_seconds, avg_power, normalized_power, intensity_factor, avg_hr, max_hr, avg_cadence, elevation_gain_meters, is_trainer, training_load'
+          'id, start_time, title, sport_type, distance_meters, moving_seconds, avg_power, normalized_power, intensity_factor, avg_hr, max_hr, avg_cadence, elevation_gain_meters, is_trainer, training_load, pedal_metrics'
         )
         .eq('user_id', userId)
         .order('start_time', { ascending: false })
@@ -185,6 +186,17 @@ export async function buildAthleteContext(userId: string): Promise<string> {
       if (a.training_load) parts.push(`carga ${Math.round(a.training_load)}`)
 
       lines.push(`- ${parts.join(' · ')}`)
+    }
+
+    const pedalRides = activities.data
+      .filter((a) => hasPedalData(a.pedal_metrics as PedalMetrics | null))
+      .map((a) => ({
+        date: localDateKey(a.start_time, tz),
+        metrics: a.pedal_metrics as PedalMetrics,
+      }))
+    if (pedalRides.length) {
+      lines.push('')
+      lines.push(...summarizePedalTrend(pedalRides))
     }
   } else {
     lines.push('- ninguna sincronizada todavía')

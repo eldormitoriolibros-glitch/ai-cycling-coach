@@ -164,3 +164,24 @@ body::before {
   position: relative;
   z-index: 0;
 }
+
+/* Charts follow the theme instead of Recharts' slate-on-white defaults. */
+.recharts-cartesian-grid line {
+  stroke: rgb(var(--border-rgb));
+}
+.recharts-text,
+.recharts-cartesian-axis-tick-value {
+  fill: rgb(var(--muted-rgb));
+}
+.recharts-legend-item-text {
+  color: rgb(var(--muted-rgb)) !important;
+}
+.recharts-tooltip-wrapper {
+  outline: none;
+}
+.recharts-default-tooltip {
+  background: rgb(var(--surface-rgb)) !important;
+  border: 1px solid rgb(var(--border-rgb)) !important;
+  border-radius: 0.5rem !important;
+  color: rgb(var(--foreground-rgb)) !important;
+}

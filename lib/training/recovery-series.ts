@@ -5,6 +5,9 @@ export type SleepSourceRow = {
   source?: string | null
   duration_minutes: number | null
   sleep_score: number | null
+  deep_sleep_minutes?: number | null
+  rem_sleep_minutes?: number | null
+  awake_minutes?: number | null
 }
 
 export type RecoverySourceRow = {
@@ -14,6 +17,7 @@ export type RecoverySourceRow = {
   hrv?: number | null
   soreness?: number | null
   motivation?: number | null
+  body_battery_high?: number | null
 }
 
 export type RecoveryDayPoint = {
@@ -24,6 +28,7 @@ export type RecoveryDayPoint = {
   hrv: number | null
   soreness: number | null
   motivation: number | null
+  bodyBattery: number | null
 }
 
 const EMPTY_DAY = {
@@ -33,6 +38,7 @@ const EMPTY_DAY = {
   hrv: null,
   soreness: null,
   motivation: null,
+  bodyBattery: null,
 } satisfies Omit<RecoveryDayPoint, 'date'>
 
 function prefersManual<T extends { source?: string | null }>(current: T | undefined, row: T): boolean {
@@ -40,11 +46,37 @@ function prefersManual<T extends { source?: string | null }>(current: T | undefi
   return row.source === 'manual' && current.source !== 'manual'
 }
 
-function mergeSleep(rows: SleepSourceRow[]): Map<string, SleepSourceRow> {
+function firstNumber(
+  a: number | null | undefined,
+  b: number | null | undefined
+): number | null {
+  return a != null ? a : b ?? null
+}
+
+export function mergeSleep(rows: SleepSourceRow[]): Map<string, SleepSourceRow> {
   const byDate = new Map<string, SleepSourceRow>()
   for (const row of rows) {
     const current = byDate.get(row.date)
-    if (prefersManual(current, row)) byDate.set(row.date, row)
+    if (!current) {
+      byDate.set(row.date, row)
+      continue
+    }
+    // Manual hours win; Garmin stages fill in when the check-in left them empty.
+    const manualHours = row.source === 'manual' && row.duration_minutes != null
+    byDate.set(row.date, {
+      date: row.date,
+      source: manualHours ? row.source : current.source,
+      duration_minutes: manualHours
+        ? row.duration_minutes
+        : firstNumber(current.duration_minutes, row.duration_minutes),
+      sleep_score:
+        manualHours && row.sleep_score != null
+          ? row.sleep_score
+          : firstNumber(current.sleep_score, row.sleep_score),
+      deep_sleep_minutes: firstNumber(current.deep_sleep_minutes, row.deep_sleep_minutes),
+      rem_sleep_minutes: firstNumber(current.rem_sleep_minutes, row.rem_sleep_minutes),
+      awake_minutes: firstNumber(current.awake_minutes, row.awake_minutes),
+    })
   }
   return byDate
 }
@@ -71,6 +103,7 @@ function pointFor(
     hrv: recovery?.hrv == null ? null : Number(recovery.hrv),
     soreness: recovery?.soreness ?? null,
     motivation: recovery?.motivation ?? null,
+    bodyBattery: recovery?.body_battery_high ?? null,
   }
 }
 

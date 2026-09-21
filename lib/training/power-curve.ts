@@ -75,6 +75,39 @@ export function computeNormalizedPower(
   return np > 0 ? Math.round(np) : null
 }
 
+/** Dense per-second watts from FIT / activity_samples offsets. Gaps stay null. */
+export function wattsFromOffsets(
+  samples: Array<{ offsetSeconds: number; power?: number | null }>
+): Array<number | null> {
+  if (samples.length === 0) return []
+
+  let max = 0
+  for (const sample of samples) {
+    if (sample.offsetSeconds > max) max = sample.offsetSeconds
+  }
+  if (max > 16 * 3600) max = 16 * 3600
+
+  const watts: Array<number | null> = new Array(max + 1).fill(null)
+  for (const sample of samples) {
+    if (sample.offsetSeconds < 0 || sample.offsetSeconds > max) continue
+    watts[sample.offsetSeconds] = sample.power ?? null
+  }
+  return watts
+}
+
+export function derivePowerMetrics(watts: Array<number | null>): {
+  curve: PowerCurve | null
+  normalizedPower: number | null
+  maxPower: number | null
+} {
+  const curve = computePowerCurve(watts)
+  return {
+    curve: Object.keys(curve).length > 0 ? curve : null,
+    normalizedPower: computeNormalizedPower(watts),
+    maxPower: maxPower(watts),
+  }
+}
+
 export function maxPower(watts: Array<number | null>): number | null {
   let best = 0
   for (const value of watts) {

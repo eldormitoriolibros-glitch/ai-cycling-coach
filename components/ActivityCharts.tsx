@@ -3,22 +3,10 @@
 import { useEffect, useState } from 'react'
 import dynamic from 'next/dynamic'
 import { Card, Alert } from '@/components/ui'
-import { CollapsibleSection } from '@/components/dashboard/CollapsibleSection'
-import {
-  BarChart,
-  Bar,
-  LineChart,
-  Line,
-  AreaChart,
-  Area,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
-  Cell,
-} from 'recharts'
+import { ActivityTimeline, type TimelinePoint } from '@/components/activity/ActivityTimeline'
+import { AerobicDecoupling } from '@/components/activity/AerobicDecoupling'
+import { PlannedVsDone } from '@/components/activity/PlannedVsDone'
+import type { PlannedWorkout } from '@/lib/training/planned-vs-done'
 import type { ActivityRow } from '@/lib/types/database'
 import { getHrZoneBounds, getPowerZoneBounds, countHrZones, countPowerZones } from '@/lib/training/zones'
 
@@ -37,22 +25,15 @@ type ActivitySample = {
   longitude: number | null
 }
 
-type ChartPoint = {
-  seconds: number
-  hr: number | null
-  power: number | null
-  cadence: number | null
-  speed: number | null
-  elevation: number | null
-  temperature: number | null
-  respirationRate: number | null
-}
+type ChartPoint = TimelinePoint
 
 type Props = {
   activity: ActivityRow & { maxHr?: number; ftp?: number }
   samples?: ActivitySample[]
   /** Rendered between the route map and the charts (details + lap blocks). */
   afterMap?: React.ReactNode
+  /** Session this ride fulfilled, when the plan and the file are linked. */
+  planned?: PlannedWorkout | null
 }
 
 /**
@@ -125,11 +106,6 @@ function processRealSamples(samples: ActivitySample[], maxHr: number | null, ftp
   }
 }
 
-function formatAxisTime(seconds: number): string {
-  const mins = Math.floor(seconds / 60)
-  return `${Math.floor(mins / 60)}h${String(mins % 60).padStart(2, '0')}`
-}
-
 /**
  * Averages raw points into buckets so the chart renders a readable trend line
  * instead of thousands of overlapping strokes (same idea Strava/Garmin use when zoomed out).
@@ -165,26 +141,76 @@ function downsampleSeries(points: ChartPoint[], maxPoints: number): ChartPoint[]
   return result
 }
 
-/**
- * Computes a numeric Y-axis domain directly from the data instead of Recharts'
- * `'dataMax + N'` string expressions, which can render bogus tick labels when
- * the underlying value isn't a clean number.
- */
-function numericDomain(
-  points: ChartPoint[],
-  key: Exclude<keyof ChartPoint, 'seconds'>,
-  padding: number,
-  minAtZero = false
-): [number, number] {
-  const values = points.map((p) => p[key]).filter((v): v is number => typeof v === 'number' && Number.isFinite(v))
-  if (!values.length) return [0, padding || 1]
+type ZoneBar = { zone: string; label: string; range: string; color: string; value: number }
 
-  const min = Math.min(...values)
-  const max = Math.max(...values)
-  return [minAtZero ? 0 : Math.floor(min - padding), Math.ceil(max + padding)]
+/**
+ * Power and pulse zones share one card: same question ("¿en qué intensidad
+ * estuve?"), so the athlete switches instead of scrolling past two charts.
+ */
+function ZoneDistribution({ power, hr }: { power: ZoneBar[] | null; hr: ZoneBar[] | null }) {
+  const [tab, setTab] = useState<'power' | 'hr'>('power')
+
+  const available: Array<'power' | 'hr'> = [
+    ...(power ? (['power'] as const) : []),
+    ...(hr ? (['hr'] as const) : []),
+  ]
+  if (!available.length) return null
+
+  const activeTab = available.includes(tab) ? tab : available[0]
+  const zones = (activeTab === 'power' ? power : hr) ?? []
+
+  return (
+    <Card className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="font-semibold">Distribución de zonas</h2>
+        {available.length > 1 && (
+          <div className="inline-flex rounded-lg border border-surface p-1">
+            {available.map((key) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setTab(key)}
+                className={`rounded-md px-2.5 py-1 text-xs font-medium transition ${
+                  activeTab === key ? 'bg-accent-500 text-white' : 'text-muted hover:text-foreground'
+                }`}
+              >
+                {key === 'power' ? 'Potencia' : 'Pulso'}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+      <div className="flex h-3.5 overflow-hidden rounded-full bg-background">
+        {zones.map((zone) =>
+          zone.value > 0 ? (
+            <div
+              key={zone.zone}
+              className="h-full min-w-[2px]"
+              style={{ width: `${zone.value}%`, backgroundColor: zone.color }}
+              title={`${zone.zone} ${zone.label}: ${zone.value}%`}
+            />
+          ) : null
+        )}
+      </div>
+      <ul className="grid gap-2 sm:grid-cols-2">
+        {zones.map((zone) => (
+          <li key={zone.zone} className="flex items-center justify-between gap-2 text-sm">
+            <span className="flex min-w-0 items-center gap-2">
+              <span className="h-2.5 w-2.5 shrink-0 rounded" style={{ backgroundColor: zone.color }} />
+              <span className="font-medium">{zone.zone}</span>
+              <span className="truncate text-muted">{zone.label}</span>
+            </span>
+            <span className="shrink-0 tabular-nums text-muted">
+              {zone.value}% · {zone.range}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </Card>
+  )
 }
 
-export function ActivityCharts({ activity, samples: initialSamples, afterMap }: Props) {
+export function ActivityCharts({ activity, samples: initialSamples, afterMap, planned }: Props) {
   const [realSamples, setRealSamples] = useState<ActivitySample[] | null>(
     initialSamples && initialSamples.length > 0 ? initialSamples : null
   )
@@ -253,9 +279,6 @@ export function ActivityCharts({ activity, samples: initialSamples, afterMap }: 
     })
   })()
 
-  const hasElevationData = realSamples?.some((s) => s.elevation !== null) ?? false
-
-
   return (
     <div className="space-y-4">
       {loadingSamples && (
@@ -287,291 +310,20 @@ export function ActivityCharts({ activity, samples: initialSamples, afterMap }: 
 
       {afterMap}
 
-      {/* Zone distribution stays open: it is the fastest read of how the ride went. */}
-      {displayPowerZones && (
-        <Card>
-          <h3 className="mb-4 font-semibold">Distribución de zonas de potencia</h3>
-          <ResponsiveContainer width="100%" height={250}>
-            <BarChart data={displayPowerZones}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="zone" />
-              <YAxis />
-              <Tooltip formatter={(value) => `${Math.round(value as number)}%`} />
-              <Bar dataKey="value" fill="#3b82f6" radius={[8, 8, 0, 0]}>
-                {displayPowerZones.map((entry) => (
-                  <Cell key={entry.zone} fill={entry.color} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-          <div className="mt-4 space-y-2">
-            {displayPowerZones.map((zone) => (
-              <div key={zone.zone} className="flex items-center justify-between text-sm">
-                <div className="flex items-center gap-2">
-                  <div className="h-3 w-3 rounded" style={{ backgroundColor: zone.color }} />
-                  <span className="font-medium">{zone.label}</span>
-                </div>
-                <span className="text-slate-600">{zone.range}</span>
-              </div>
-            ))}
-          </div>
-        </Card>
+      {planned && chartData && chartData.timeSeries.length > 1 && (
+        <PlannedVsDone
+          workout={planned}
+          points={chartData.timeSeries}
+          ftp={resolvedFtp}
+          maxHr={resolvedMaxHr}
+        />
       )}
 
-      {displayHrZones && (
-        <Card>
-          <h3 className="mb-4 font-semibold">Distribución de zonas de pulso</h3>
-          <ResponsiveContainer width="100%" height={250}>
-            <BarChart data={displayHrZones}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="zone" />
-              <YAxis />
-              <Tooltip formatter={(value) => `${Math.round(value as number)}%`} />
-              <Bar dataKey="value" fill="#3b82f6" radius={[8, 8, 0, 0]}>
-                {displayHrZones.map((entry) => (
-                  <Cell key={entry.zone} fill={entry.color} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-          <div className="mt-4 space-y-2">
-            {displayHrZones.map((zone) => (
-              <div key={zone.zone} className="flex items-center justify-between text-sm">
-                <div className="flex items-center gap-2">
-                  <div className="h-3 w-3 rounded" style={{ backgroundColor: zone.color }} />
-                  <span className="font-medium">{zone.label}</span>
-                </div>
-                <span className="text-slate-600">{zone.range}</span>
-              </div>
-            ))}
-          </div>
-        </Card>
-      )}
+      {hasStreams && <AerobicDecoupling samples={realSamples!} ftp={resolvedFtp} />}
 
-      {/* Heart Rate Time Series */}
-      {hasStreams && chartData?.hasHr && (
-        <CollapsibleSection title="Pulso durante la salida">
-          <ResponsiveContainer width="100%" height={250}>
-            <AreaChart data={timeSeries}>
-              <defs>
-                <linearGradient id="hrGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#ef4444" stopOpacity={0.8} />
-                  <stop offset="95%" stopColor="#ef4444" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="seconds" type="number" domain={['dataMin', 'dataMax']} tickFormatter={formatAxisTime} />
-              <YAxis domain={numericDomain(timeSeries, 'hr', 5)} />
-              <Tooltip
-                formatter={(value) => {
-                  if (typeof value === 'number') return `${Math.round(value)} ppm`
-                  return value
-                }}
-              />
-              <Area
-                type="monotone"
-                dataKey="hr"
-                stroke="#ef4444"
-                fillOpacity={1}
-                fill="url(#hrGradient)"
-                isAnimationActive={false}
-              />
-            </AreaChart>
-          </ResponsiveContainer>
-        </CollapsibleSection>
-      )}
+      {hasStreams && timeSeries.length > 1 && <ActivityTimeline points={timeSeries} />}
 
-      {/* Power Time Series - Only if real power data */}
-      {hasStreams && chartData?.hasPower && (
-        <CollapsibleSection title="Potencia durante la salida">
-          <ResponsiveContainer width="100%" height={250}>
-            <AreaChart data={timeSeries}>
-              <defs>
-                <linearGradient id="powerGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#06b6d4" stopOpacity={0.8} />
-                  <stop offset="95%" stopColor="#06b6d4" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="seconds" type="number" domain={['dataMin', 'dataMax']} tickFormatter={formatAxisTime} />
-              <YAxis domain={numericDomain(timeSeries, 'power', 20, true)} />
-              <Tooltip
-                formatter={(value) => {
-                  if (typeof value === 'number') return `${Math.round(value)} W`
-                  return value
-                }}
-              />
-              <Area
-                type="monotone"
-                dataKey="power"
-                stroke="#06b6d4"
-                fillOpacity={1}
-                fill="url(#powerGradient)"
-                isAnimationActive={false}
-              />
-            </AreaChart>
-          </ResponsiveContainer>
-        </CollapsibleSection>
-      )}
-
-      {/* Speed Time Series */}
-      {hasStreams && (
-      <CollapsibleSection title="Velocidad durante la salida">
-        <ResponsiveContainer width="100%" height={250}>
-          <AreaChart data={timeSeries}>
-            <defs>
-              <linearGradient id="speedGradient" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.8} />
-                <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="seconds" type="number" domain={['dataMin', 'dataMax']} tickFormatter={formatAxisTime} />
-            <YAxis label={{ value: 'km/h', angle: -90, position: 'insideLeft' }} domain={numericDomain(timeSeries, 'speed', 2, true)} />
-            <Tooltip
-              formatter={(value) => {
-                if (typeof value === 'number') return `${value.toFixed(1)} km/h`
-                return value
-              }}
-            />
-            <Area
-              type="monotone"
-              dataKey="speed"
-              stroke="#8b5cf6"
-              fillOpacity={1}
-              fill="url(#speedGradient)"
-              isAnimationActive={false}
-            />
-          </AreaChart>
-        </ResponsiveContainer>
-      </CollapsibleSection>
-      )}
-
-      {/* Elevation profile */}
-      {hasStreams && hasElevationData && (
-        <CollapsibleSection title="Perfil de elevación">
-          <ResponsiveContainer width="100%" height={200}>
-            <AreaChart data={timeSeries}>
-              <defs>
-                <linearGradient id="elevationGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#64748b" stopOpacity={0.8} />
-                  <stop offset="95%" stopColor="#64748b" stopOpacity={0.1} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="seconds" type="number" domain={['dataMin', 'dataMax']} tickFormatter={formatAxisTime} />
-              <YAxis label={{ value: 'm', angle: -90, position: 'insideLeft' }} domain={numericDomain(timeSeries, 'elevation', 10)} />
-              <Tooltip
-                formatter={(value) => {
-                  if (typeof value === 'number') return `${Math.round(value)} m`
-                  return value
-                }}
-              />
-              <Area
-                type="monotone"
-                dataKey="elevation"
-                stroke="#64748b"
-                fillOpacity={1}
-                fill="url(#elevationGradient)"
-                isAnimationActive={false}
-              />
-            </AreaChart>
-          </ResponsiveContainer>
-        </CollapsibleSection>
-      )}
-
-      {/* Temperature - Only if available */}
-      {hasStreams && realSamples?.some((s) => s.temperature !== null) && (
-        <CollapsibleSection title="Temperatura ambiente">
-          <ResponsiveContainer width="100%" height={250}>
-            <LineChart data={timeSeries}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="seconds" type="number" domain={['dataMin', 'dataMax']} tickFormatter={formatAxisTime} />
-              <YAxis label={{ value: '°C', angle: -90, position: 'insideLeft' }} domain={numericDomain(timeSeries, 'temperature', 1)} />
-              <Tooltip
-                formatter={(value) => {
-                  if (typeof value === 'number') return `${value.toFixed(1)}°C`
-                  return value
-                }}
-              />
-              <Line
-                type="monotone"
-                dataKey="temperature"
-                stroke="#f97316"
-                dot={false}
-                isAnimationActive={false}
-                strokeWidth={1.5}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        </CollapsibleSection>
-      )}
-
-      {/* Respiration Rate - Only if available */}
-      {hasStreams && realSamples?.some((s) => s.respiration_rate !== null) && (
-        <CollapsibleSection title="Frecuencia respiratoria">
-          <ResponsiveContainer width="100%" height={200}>
-            <AreaChart data={timeSeries}>
-              <defs>
-                <linearGradient id="respirationGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#06b6d4" stopOpacity={0.6} />
-                  <stop offset="95%" stopColor="#06b6d4" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="seconds" type="number" domain={['dataMin', 'dataMax']} tickFormatter={formatAxisTime} />
-              <YAxis label={{ value: 'rpm', angle: -90, position: 'insideLeft' }} domain={numericDomain(timeSeries, 'respirationRate', 2)} />
-              <Tooltip
-                formatter={(value) => {
-                  if (typeof value === 'number') return `${value.toFixed(1)} rpm`
-                  return value
-                }}
-              />
-              <Area
-                type="monotone"
-                dataKey="respirationRate"
-                stroke="#06b6d4"
-                fillOpacity={1}
-                fill="url(#respirationGradient)"
-                isAnimationActive={false}
-              />
-            </AreaChart>
-          </ResponsiveContainer>
-        </CollapsibleSection>
-      )}
-
-      {/* Cadence */}
-      {hasStreams && chartData?.hasCadence && (
-        <CollapsibleSection title="Cadencia">
-          <ResponsiveContainer width="100%" height={200}>
-            <AreaChart data={timeSeries}>
-              <defs>
-                <linearGradient id="cadenceGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#f97316" stopOpacity={0.7} />
-                  <stop offset="95%" stopColor="#f97316" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="seconds" type="number" domain={['dataMin', 'dataMax']} tickFormatter={formatAxisTime} />
-              <YAxis label={{ value: 'rpm', angle: -90, position: 'insideLeft' }} domain={numericDomain(timeSeries, 'cadence', 5, true)} />
-              <Tooltip
-                formatter={(value) => {
-                  if (typeof value === 'number') return `${Math.round(value)} rpm`
-                  return value
-                }}
-              />
-              <Area
-                type="monotone"
-                dataKey="cadence"
-                stroke="#f97316"
-                fillOpacity={1}
-                fill="url(#cadenceGradient)"
-                isAnimationActive={false}
-              />
-            </AreaChart>
-          </ResponsiveContainer>
-        </CollapsibleSection>
-      )}
+      <ZoneDistribution power={displayPowerZones} hr={displayHrZones} />
     </div>
   )
 }

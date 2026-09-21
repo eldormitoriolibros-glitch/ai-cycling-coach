@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { RefreshCw } from 'lucide-react'
+import { Alert, Button } from '@/components/ui'
 
 export function SyncUnsyncedButton() {
   const [loading, setLoading] = useState(false)
@@ -32,18 +33,12 @@ export function SyncUnsyncedButton() {
 
   return (
     <div className="space-y-2">
-      <button
-        onClick={handleSync}
-        disabled={loading}
-        className="flex items-center gap-2 rounded-lg bg-blue-500 px-4 py-2 text-white hover:bg-blue-600 disabled:opacity-50"
-      >
-        <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
-        {loading ? 'Sincronizando...' : 'Sincronizar actividades sin datos'}
-      </button>
+      <Button onClick={handleSync} loading={loading} variant="secondary">
+        {!loading && <RefreshCw aria-hidden className="h-4 w-4" />}
+        {loading ? 'Sincronizando…' : 'Sincronizar actividades sin datos'}
+      </Button>
       {message && (
-        <div className={`text-sm ${message.includes('Error') ? 'text-red-600' : 'text-green-600'}`}>
-          {message}
-        </div>
+        <Alert variant={message.includes('Error') ? 'error' : 'success'}>{message}</Alert>
       )}
     </div>
   )

@@ -31,7 +31,15 @@ export async function GET(request: NextRequest) {
     activityQuery = activityQuery.gte('start_time', cutoff)
   }
 
-  const [{ data: dailyLoads }, { data: activities }] = await Promise.all([loadQuery, activityQuery])
+  const [{ data: dailyLoads }, { data: activities }, { data: brief }] = await Promise.all([
+    loadQuery,
+    activityQuery,
+    supabase
+      .from('training_briefs')
+      .select('goal_kind, goal_label, target_date')
+      .eq('user_id', user.id)
+      .maybeSingle(),
+  ])
 
   // Build per-day activity load breakdown
   const dailyActivities: Record<string, { total: number; activities: any[] }> = {}
@@ -57,8 +65,14 @@ export async function GET(request: NextRequest) {
     rampRate: d.ramp_rate,
   }))
 
+  // The date the whole block points at, so the chart can show the taper.
+  const goal = brief?.target_date
+    ? { date: brief.target_date, label: brief.goal_label, kind: brief.goal_kind }
+    : null
+
   return NextResponse.json({
     loadTimeline,
     dailyActivities,
+    goal,
   })
 }

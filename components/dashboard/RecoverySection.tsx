@@ -3,8 +3,10 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { ChevronRight } from 'lucide-react'
+import { LoadVsRecovery } from './LoadVsRecovery'
 import { RecoveryChart } from './RecoveryChart'
 import { MorningCheckIn } from '@/components/recovery/MorningCheckIn'
+import type { Absorption } from '@/lib/training/absorption'
 import type { RecoveryDayPoint } from '@/lib/training/recovery-series'
 
 function formatHours(value: number | null): string {
@@ -16,11 +18,13 @@ export function RecoverySection({
   series,
   todayPoint,
   loggedToday,
+  absorption,
 }: {
   today: string
   series: RecoveryDayPoint[]
   todayPoint: RecoveryDayPoint
   loggedToday: boolean
+  absorption?: Absorption | null
 }) {
   const [editing, setEditing] = useState(!loggedToday)
   const hasAnySleep = series.some((row) => row.sleepHours != null)
@@ -80,6 +84,12 @@ export function RecoverySection({
           />
         </div>
       )}
+
+      {absorption ? (
+        <div className="mb-3">
+          <LoadVsRecovery absorption={absorption} compact />
+        </div>
+      ) : null}
 
       {hasAnySleep ? <RecoveryChart series={series} height={140} compact /> : null}
     </section>

@@ -19,7 +19,7 @@ export default async function PlanPage({
     return (
       <div className="space-y-4">
         <h1 className="text-2xl font-bold">Plan</h1>
-        <p className="text-sm text-slate-600">Iniciá sesión para ver y gestionar tu plan.</p>
+        <p className="text-sm text-muted">Iniciá sesión para ver y gestionar tu plan.</p>
       </div>
     )
   }
@@ -72,7 +72,7 @@ export default async function PlanPage({
   return (
     <div className="space-y-4">
       <h1 className="text-2xl font-bold">Plan</h1>
-      <p className="text-sm text-slate-600">
+      <p className="text-sm text-muted">
         Mirás una semana completa o un ciclo de 4. El diseño de cada sesión está en el detalle.
         Para armar o cambiar el plan, pedíselo al entrenador: pregunta objetivo, horizonte y tu semana típica, y vos confirmás.
       </p>

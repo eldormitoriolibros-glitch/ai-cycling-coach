@@ -1,9 +1,11 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { estimateTrainingLoad } from '@/lib/training/load'
+import { derivePowerMetrics, wattsFromOffsets } from '@/lib/training/power-curve'
 import type { ParsedFitActivity } from './fit'
 import { findMatch, findTimeMatch, type ExistingActivity } from './activity-match'
 import { garminStoredExternalId } from './list-import'
 import { saveActivityLaps } from './laps-store'
+import { hasPedalData } from './pedal-metrics'
 
 import 'server-only'
 
@@ -18,7 +20,7 @@ export type EnrichResult = {
   unmatched: ParsedFitActivity[]
 }
 
-const ENRICH_SELECT = 'id, title, start_time, duration_seconds, moving_seconds, distance_meters, avg_hr, max_hr, avg_cadence, max_cadence, avg_power, max_power, avg_speed, max_speed, elevation_gain_meters, avg_temperature, max_temperature, training_effect_aerobic, training_effect_anaerobic, avg_respiration_rate, calories, sweat_loss_ml, garmin_training_load, has_power_meter, kilojoules, training_load'
+const ENRICH_SELECT = 'id, title, start_time, duration_seconds, moving_seconds, distance_meters, avg_hr, max_hr, avg_cadence, max_cadence, avg_power, max_power, normalized_power, power_curve, streams_status, avg_speed, max_speed, elevation_gain_meters, avg_temperature, max_temperature, training_effect_aerobic, training_effect_anaerobic, avg_respiration_rate, calories, sweat_loss_ml, garmin_training_load, has_power_meter, kilojoules, training_load, pedal_metrics'
 
 /**
  * Loads every activity for the user. PostgREST caps a single response at ~1000
@@ -136,8 +138,17 @@ export async function enrichActivities(
     tryPatch('max_hr', best.max_hr, fit.maxHr)
     tryPatch('avg_cadence', best.avg_cadence, fit.avgCadence)
     tryPatch('max_cadence', best.max_cadence, fit.maxCadence)
+    const derived = derivePowerMetrics(wattsFromOffsets(fit.records))
+    const normalizedPower = fit.normalizedPower ?? derived.normalizedPower
     tryPatch('avg_power', best.avg_power, fit.avgPower)
-    tryPatch('max_power', best.max_power, fit.maxPower)
+    tryPatch('max_power', best.max_power, fit.maxPower ?? derived.maxPower)
+    tryPatch('normalized_power', best.normalized_power, normalizedPower)
+    if (best.power_curve == null && derived.curve) {
+      patch.power_curve = derived.curve
+      patch.streams_status = 'ok'
+      patch.streams_fetched_at = new Date().toISOString()
+      patchedFields.push('power_curve')
+    }
     tryPatch('avg_speed', best.avg_speed, fit.avgSpeed)
     tryPatch('max_speed', best.max_speed, fit.maxSpeed)
     tryPatch('elevation_gain_meters', best.elevation_gain_meters, fit.elevationGain)
@@ -156,12 +167,21 @@ export async function enrichActivities(
       patchedFields.push('has_power_meter')
     }
 
+    if (hasPedalData(fit.pedalMetrics)) {
+      patch.pedal_metrics = fit.pedalMetrics
+      patchedFields.push('pedal_metrics')
+    }
+
     // Recompute training load if we filled power or HR
-    if (patchedFields.includes('avg_hr') || patchedFields.includes('avg_power')) {
+    if (
+      patchedFields.includes('avg_hr') ||
+      patchedFields.includes('avg_power') ||
+      patchedFields.includes('normalized_power')
+    ) {
       const dur = best.moving_seconds ?? best.duration_seconds ?? fit.durationSeconds ?? 0
       const { trainingLoad, intensityFactor } = estimateTrainingLoad({
         durationSeconds: dur,
-        normalizedPower: null,
+        normalizedPower: patch.normalized_power ?? best.normalized_power ?? null,
         averagePower: patch.avg_power ?? best.avg_power ?? null,
         averageHr: patch.avg_hr ?? best.avg_hr ?? null,
         ftp,

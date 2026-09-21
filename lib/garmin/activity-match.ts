@@ -20,6 +20,9 @@ export type ExistingActivity = {
   max_cadence: number | null
   avg_power: number | null
   max_power: number | null
+  normalized_power?: number | null
+  power_curve?: Record<string, number> | null
+  streams_status?: string | null
   avg_speed: number | null
   max_speed: number | null
   elevation_gain_meters: number | null
@@ -34,6 +37,7 @@ export type ExistingActivity = {
   has_power_meter: boolean
   kilojoules: number | null
   training_load: number | null
+  pedal_metrics?: import('./pedal-metrics').PedalMetrics | null
 }
 
 /** Finds the best existing activity for a parsed FIT session, or null. */

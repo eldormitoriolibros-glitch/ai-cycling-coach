@@ -194,6 +194,7 @@ lib/
   training/plan-service.ts Proposes, explains and commits plans
   training/load.ts        TSS estimation (power, HR or duration)
   training/rollup.ts      CTL / ATL / TSB series
+  training/decoupling.ts  Pw:Hr drift on long steady rides
   training/reconcile.ts   Closes out past sessions against actual rides
   types/database.ts       Mirror of the SQL schema
 supabase/migrations/      Database schema

@@ -11,6 +11,7 @@ import { COACH_DOCTRINE_REVIEW } from './doctrine'
 import { parseReviewDate } from './review-intent'
 import { compareSession, formatSessionComparison, pinReviewVerdict } from './session-compare'
 import { composeReviewSystemPrompt } from './system-prompt'
+import { formatPedalMetrics, hasPedalData, type PedalMetrics } from '@/lib/garmin/pedal-metrics'
 
 import 'server-only'
 
@@ -74,6 +75,9 @@ function describeExecution(activity: any | null, laps: ActivityLapRow[], samples
   if (activity.avg_cadence) parts.push(`cadencia media: ${Math.round(activity.avg_cadence)} rpm`)
   if (activity.elevation_gain_meters) parts.push(`desnivel: +${Math.round(activity.elevation_gain_meters)} m`)
   if (activity.training_load) parts.push(`carga: ${Math.round(activity.training_load)}`)
+  if (hasPedalData(activity.pedal_metrics as PedalMetrics | null)) {
+    parts.push(`pedaleo: ${formatPedalMetrics(activity.pedal_metrics as PedalMetrics)}`)
+  }
 
   const lines = [parts.join(' · ')]
   const lapLines = formatLapsForCoach(laps, samples)
@@ -295,7 +299,7 @@ async function findSessionActivity(userId: string, workout: ReviewWorkout, timeZ
 
   const supabase = createAdminClient()
   const select =
-    'id, title, sport_type, start_time, duration_seconds, moving_seconds, distance_meters, avg_power, normalized_power, intensity_factor, avg_hr, max_hr, avg_cadence, elevation_gain_meters, training_load'
+    'id, title, sport_type, start_time, duration_seconds, moving_seconds, distance_meters, avg_power, normalized_power, intensity_factor, avg_hr, max_hr, avg_cadence, elevation_gain_meters, training_load, pedal_metrics'
 
   if (workout.completed_activity_id) {
     const { data } = await supabase

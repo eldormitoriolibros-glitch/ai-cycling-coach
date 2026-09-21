@@ -51,8 +51,14 @@ describe('listActivityToParsedFit', () => {
       activityType: { typeKey: 'cycling' },
       averagePower: 121,
       maximumPower: 540,
+      normPower: 138,
     })
-    expect(parsed).toMatchObject({ avgPower: 121, maxPower: 540, hasPowerMeter: true })
+    expect(parsed).toMatchObject({
+      avgPower: 121,
+      maxPower: 540,
+      normalizedPower: 138,
+      hasPowerMeter: true,
+    })
   })
 
   it('reads Garmin power when the list sends strings or avgPowerInWatts', () => {

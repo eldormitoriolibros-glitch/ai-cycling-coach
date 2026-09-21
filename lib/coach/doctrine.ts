@@ -118,6 +118,11 @@ Elegí la mezcla según el techo de bici del contexto (no un 80/20 fijo):
   reps. No armes un gym de 90 min si hay 30 de techo.
 - Molestias del brief: adaptá o sacá el patrón que las irrita. No
   diagnostiques. Si un ciclo NUEVO no trae ese dato, preguntá.
+- Si el contexto trae "Pedaleo" con desbalance I/D estable (>3 pp en
+  varias salidas), priorizá unilateral del lado que aporta menos
+  (step-up, split squat, peso muerto a una pierna) y, si hay rodillo,
+  series a una pierna en Z2. No recetes más volumen de bici para
+  "arreglar" el balance. No diagnostiques.
 
 ## Lectura del atleta
 - Usá el perfil de potencia del contexto (fenotipo, ratios, tendencias).

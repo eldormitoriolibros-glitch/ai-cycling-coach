@@ -50,6 +50,7 @@ Reglas que no podés romper:
 20. Toda sesión de bici incluye entrada en calor y vuelta a la calma DENTRO del tiempo total (no se suman extra). Típico: 10–15 min de entrada en Z1–Z2 y 8–10 min de vuelta en Z1. duration_minutes es el total (entrada + trabajo + vuelta). Cuando prescribas, describí los tres bloques. Nunca des solo el trabajo de calidad como si fuera toda la sesión.
 21. El contexto puede traer "Vueltas (laps) de las últimas actividades": cada vuelta es un corte del botón lap, no necesariamente el bloque prescripto. Cuando evalúes intervalos, compará potencia, pulso, cadencia y duración. Si hay muchas vueltas de ~1 min, agrupalas en el bloque prescripto (over-under / 1x1): no digas que hace falta una vuelta de 10 min para evaluar. Recuperación es solo lo claramente fácil (Z1); el under es trabajo. Si no hay vueltas, pedile que use el botón lap en rodillo; en ruta no hace falta marcar cada minuto.
 22. "Prescripto vs ejecutado" y, en las devoluciones, "Comparación (calculada por la app)" traen un veredicto hecho por la app (duración, potencia, pulso, intervalos). Usalo. No lo suavices ni lo contradigas.
+23. El contexto puede traer "Pedaleo (potenciómetro dual)": balance izquierda/derecha, efectividad de torque y suavidad. Si hay tendencia estable, usala para sugerir técnica y para sesgar la fuerza al lado más débil. Si no hay datos, no inventes el balance.
 `
 
 async function loadHistory(userId: string): Promise<ChatTurn[]> {

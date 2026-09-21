@@ -6,6 +6,85 @@
 
 export type ZoneBound = { zone: string; label: string; range: string; color: string }
 
+/** One palette for every zone chart, so Z4 is the same colour everywhere. */
+export const ZONE_COLORS: Record<string, string> = {
+  Z1: '#94a3b8',
+  Z2: '#3b82f6',
+  Z3: '#22c55e',
+  Z4: '#f97316',
+  Z5: '#ef4444',
+  Z6: '#b91c1c',
+}
+
+/** Fraction of FTP covered by each zone (Coggan). `null` means open-ended. */
+const POWER_ZONE_FRACTIONS: Record<string, [number, number | null]> = {
+  Z1: [0, 0.56],
+  Z2: [0.56, 0.75],
+  Z3: [0.75, 0.9],
+  Z4: [0.9, 1.05],
+  Z5: [1.05, 1.2],
+  Z6: [1.2, null],
+}
+
+/** Fraction of max HR covered by each zone (Strava/Garmin 10% bands). */
+const HR_ZONE_FRACTIONS: Record<string, [number, number | null]> = {
+  Z1: [0, 0.6],
+  Z2: [0.6, 0.7],
+  Z3: [0.7, 0.8],
+  Z4: [0.8, 0.9],
+  Z5: [0.9, null],
+  Z6: [0.9, null],
+}
+
+/**
+ * Zone ids named by a prescription: "Z1–Z2" → [Z1, Z2], "FTP / Z4" → [Z4].
+ * Coaches also write intensities by name, so those map onto the same scale.
+ */
+export function zonesInText(text: string | null | undefined): string[] {
+  const raw = (text ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  if (!raw.trim()) return []
+
+  const found = new Set<string>()
+  for (const match of raw.matchAll(/z\s*([1-6])/g)) found.add(`Z${match[1]}`)
+  if (!found.size) {
+    if (/sweet\s*spot|ftp|umbral|threshold/.test(raw)) found.add('Z4')
+    else if (/vo2|fuerte/.test(raw)) found.add('Z5')
+    else if (/tempo/.test(raw)) found.add('Z3')
+    else if (/recuper|regen|suave/.test(raw)) found.add('Z1')
+  }
+  return [...found].sort()
+}
+
+export function zoneColor(zone: string | null | undefined): string {
+  const ids = zonesInText(zone)
+  return ZONE_COLORS[ids[ids.length - 1] ?? ''] ?? ZONE_COLORS.Z1
+}
+
+function targetFrom(
+  fractions: Record<string, [number, number | null]>,
+  zone: string | null | undefined,
+  reference: number | null
+): { low: number; high: number | null } | null {
+  if (!reference) return null
+  const ids = zonesInText(zone).filter((id) => id in fractions)
+  if (!ids.length) return null
+
+  const low = Math.min(...ids.map((id) => fractions[id][0]))
+  const highs = ids.map((id) => fractions[id][1])
+  const high = highs.some((v) => v == null) ? null : Math.max(...(highs as number[]))
+  return { low: Math.round(low * reference), high: high == null ? null : Math.round(high * reference) }
+}
+
+/** Watt band a prescribed zone maps to, e.g. "Z4" at 250 W FTP → 225–263 W. */
+export function powerTargetFor(zone: string | null | undefined, ftp: number | null) {
+  return targetFrom(POWER_ZONE_FRACTIONS, zone, ftp)
+}
+
+/** Heart rate band a prescribed zone maps to. */
+export function hrTargetFor(zone: string | null | undefined, maxHr: number | null) {
+  return targetFrom(HR_ZONE_FRACTIONS, zone, maxHr)
+}
+
 /**
  * Heart rate zone boundaries using Strava/Garmin standard (10% bands).
  * Z1: <60%, Z2: 60-70%, Z3: 70-80%, Z4: 80-90%, Z5: 90%+ of max HR.
@@ -19,11 +98,11 @@ export function getHrZoneBounds(maxHr: number | null): ZoneBound[] | null {
   const z4Max = Math.round(maxHr * 0.9)
 
   return [
-    { zone: 'Z1', label: 'Calentamiento', range: `<${z1Max}`, color: '#94a3b8' },
-    { zone: 'Z2', label: 'Fondo', range: `${z1Max}-${z2Max}`, color: '#3b82f6' },
-    { zone: 'Z3', label: 'Tempo', range: `${z2Max}-${z3Max}`, color: '#f59e0b' },
-    { zone: 'Z4', label: 'Umbral', range: `${z3Max}-${z4Max}`, color: '#ef4444' },
-    { zone: 'Z5', label: 'VO2máx', range: `>${z4Max}`, color: '#991b1b' },
+    { zone: 'Z1', label: 'Calentamiento', range: `<${z1Max}`, color: ZONE_COLORS.Z1 },
+    { zone: 'Z2', label: 'Fondo', range: `${z1Max}-${z2Max}`, color: ZONE_COLORS.Z2 },
+    { zone: 'Z3', label: 'Tempo', range: `${z2Max}-${z3Max}`, color: ZONE_COLORS.Z3 },
+    { zone: 'Z4', label: 'Umbral', range: `${z3Max}-${z4Max}`, color: ZONE_COLORS.Z4 },
+    { zone: 'Z5', label: 'VO2máx', range: `>${z4Max}`, color: ZONE_COLORS.Z5 },
   ]
 }
 
@@ -40,11 +119,11 @@ export function getPowerZoneBounds(ftp: number | null): ZoneBound[] | null {
   const z4Max = Math.round(ftp * 1.05)
 
   return [
-    { zone: 'Z1', label: 'Recuperación', range: `<${z1Max}`, color: '#94a3b8' },
-    { zone: 'Z2', label: 'Endurance', range: `${z1Max}-${z2Max}`, color: '#3b82f6' },
-    { zone: 'Z3', label: 'Tempo', range: `${z2Max}-${z3Max}`, color: '#f59e0b' },
-    { zone: 'Z4', label: 'Umbral', range: `${z3Max}-${z4Max}`, color: '#ef4444' },
-    { zone: 'Z5+', label: 'Anaeróbico', range: `>${z4Max}`, color: '#991b1b' },
+    { zone: 'Z1', label: 'Recuperación', range: `<${z1Max}`, color: ZONE_COLORS.Z1 },
+    { zone: 'Z2', label: 'Endurance', range: `${z1Max}-${z2Max}`, color: ZONE_COLORS.Z2 },
+    { zone: 'Z3', label: 'Tempo', range: `${z2Max}-${z3Max}`, color: ZONE_COLORS.Z3 },
+    { zone: 'Z4', label: 'Umbral', range: `${z3Max}-${z4Max}`, color: ZONE_COLORS.Z4 },
+    { zone: 'Z5+', label: 'Anaeróbico', range: `>${z4Max}`, color: ZONE_COLORS.Z5 },
   ]
 }
 

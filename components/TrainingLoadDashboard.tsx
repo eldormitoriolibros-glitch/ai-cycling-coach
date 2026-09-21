@@ -3,11 +3,14 @@
 import { useEffect, useState } from 'react'
 import { Card } from '@/components/ui'
 import { CollapsibleSection } from '@/components/dashboard/CollapsibleSection'
+import { PolarizationChart } from '@/components/dashboard/PolarizationChart'
 import {
-  BarChart, Bar, LineChart, Line, ComposedChart,
+  BarChart, Bar, LineChart, Line, ComposedChart, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   ResponsiveContainer, ReferenceLine, ReferenceArea,
 } from 'recharts'
+import { assessForm, bandTone, type BandId } from '@/lib/training/form-status'
+import { startOfWeek } from '@/lib/training/dates'
 
 type LoadPoint = {
   date: string
@@ -26,6 +29,7 @@ type DailyActivity = {
 type LoadData = {
   loadTimeline: LoadPoint[]
   dailyActivities: Record<string, DailyActivity>
+  goal?: { date: string; label: string | null; kind: string } | null
 }
 
 const RANGE_OPTIONS = [
@@ -107,21 +111,23 @@ export function TrainingLoadDashboard({
   const rangePicker = allowRangeSelect ? (
     <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
       <p className="text-[10px] font-semibold uppercase tracking-wide text-muted">Rango</p>
-      <div className="inline-flex flex-wrap gap-1 rounded-lg border border-surface p-1">
-        {RANGE_OPTIONS.map((r) => (
-          <button
-            key={r.days}
-            type="button"
-            onClick={() => pickRange(r.days)}
-            className={`rounded-md px-2.5 py-1 text-xs font-medium transition ${
-              days === r.days
-                ? 'bg-accent-500 text-white'
-                : 'text-muted hover:text-foreground'
-            }`}
-          >
-            {r.label}
-          </button>
-        ))}
+      <div className="no-scrollbar -mx-1 max-w-full overflow-x-auto px-1">
+        <div className="inline-flex gap-1 rounded-lg border border-surface p-1">
+          {RANGE_OPTIONS.map((r) => (
+            <button
+              key={r.days}
+              type="button"
+              onClick={() => pickRange(r.days)}
+              className={`shrink-0 rounded-md px-2.5 py-1 text-xs font-medium transition ${
+                days === r.days
+                  ? 'bg-accent-500 text-white'
+                  : 'text-muted hover:text-foreground'
+              }`}
+            >
+              {r.label}
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   ) : null
@@ -138,7 +144,7 @@ export function TrainingLoadDashboard({
 
   const timeline = data?.loadTimeline ?? []
   const lastPoint = timeline[timeline.length - 1]
-  const chartHeight = compact ? 120 : 200
+  const chartHeight = compact ? 148 : 200
   const tickEvery = Math.max(1, Math.floor(timeline.length / (compact ? 4 : 7)))
 
   const dailyData = timeline.map((p) => ({
@@ -147,13 +153,18 @@ export function TrainingLoadDashboard({
     load: p.dailyLoad,
   }))
 
-  const fitnessData = timeline.map((p) => ({
+  const fitnessDaily = timeline.map((p) => ({
     date: formatDate(p.date),
     fullDate: p.date,
     fitness: p.chronicLoad != null ? Math.round(p.chronicLoad) : null,
     fatigue: p.acuteLoad != null ? Math.round(p.acuteLoad) : null,
     form: p.form != null ? Math.round(p.form) : null,
   }))
+  const weeklyFitness = timeline.length > 90
+  const fitnessData = weeklyFitness ? toWeeklyFitness(fitnessDaily) : fitnessDaily
+  const fitnessTicks = weeklyFitness
+    ? Math.max(0, Math.floor(fitnessData.length / (compact ? 4 : 8)) - 1)
+    : tickEvery
 
   const rollingData = timeline.map((p, i) => {
     const window = timeline.slice(Math.max(0, i - 6), i + 1)
@@ -232,25 +243,52 @@ export function TrainingLoadDashboard({
     </Card>
   )
 
+  const goalDate = data?.goal?.date ?? null
+  const goalNote = goalDate
+    ? ` · objetivo ${formatDate(goalDate)}${data?.goal?.label ? `: ${data.goal.label}` : ''}`
+    : ''
+
   const fitnessChart = compact ? (
     <>
-      <h3 className="mb-1 text-xs font-semibold">Fitness vs Fatiga</h3>
-      <p className="mb-2 text-[10px] text-muted">CTL · ATL · TSB</p>
-      <FitnessFatigueChart data={fitnessData} height={chartHeight} tickEvery={tickEvery} compact />
+      <h3 className="mb-1 text-xs font-semibold">Fitness, fatiga y forma</h3>
+      <p className="mb-2 text-[10px] text-muted">
+        {weeklyFitness ? 'Por semana' : 'Líneas CTL y ATL · barras TSB'}
+      </p>
+      <FitnessFatigueChart
+        data={fitnessData}
+        height={chartHeight}
+        tickEvery={fitnessTicks}
+        goalDate={goalDate}
+        compact
+      />
     </>
   ) : (
     <Card>
-      <h3 className="mb-1 font-semibold">Fitness vs Fatiga</h3>
+      <h3 className="mb-1 font-semibold">Fitness, fatiga y forma</h3>
       <p className="mb-3 text-xs text-muted">
-        CTL · ATL · TSB — {timeline.length} días
+        Fitness (CTL) y fatiga (ATL) como líneas, forma (TSB) como barras
+        {weeklyFitness
+          ? ` — un punto por semana (${fitnessData.length} semanas)`
+          : ` — ${timeline.length} días`}
+        {goalNote}
       </p>
-      <FitnessFatigueChart data={fitnessData} height={250} tickEvery={tickEvery} />
+      <FitnessFatigueChart
+        data={fitnessData}
+        height={250}
+        tickEvery={fitnessTicks}
+        goalDate={goalDate}
+      />
+      <FormBandLegend />
       {showStats && lastPoint && (
         <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
           <MiniStat label="Fitness (CTL)" value={lastPoint.chronicLoad} color="text-blue-600" />
           <MiniStat label="Fatiga (ATL)" value={lastPoint.acuteLoad} color="text-red-500" />
-          <MiniStat label="Forma (TSB)" value={lastPoint.form} color="text-green-600" />
-          <MiniStat label="Rampa 7d" value={lastPoint.rampRate} color="text-slate-600" />
+          <MiniStat
+            label="Forma (TSB)"
+            value={lastPoint.form}
+            color={bandTone(assessForm(lastPoint.form != null ? Math.round(lastPoint.form) : null).band).text}
+          />
+          <MiniStat label="Rampa 7d" value={lastPoint.rampRate} color="text-muted" />
         </div>
       )}
     </Card>
@@ -258,6 +296,14 @@ export function TrainingLoadDashboard({
 
   const featuredChart =
     featured === 'rolling' ? rollingChart : featured === 'fitness' ? fitnessChart : dailyChart
+
+  const polarization = compact ? (
+    <PolarizationChart compact days={days} />
+  ) : (
+    <Card>
+      <PolarizationChart days={days} />
+    </Card>
+  )
 
   const allCharts = (
     <div className={compact ? 'grid gap-3 lg:grid-cols-3' : 'space-y-4'}>
@@ -268,25 +314,24 @@ export function TrainingLoadDashboard({
   )
 
   const summary = !ready ? (loading ? pending : empty) : <div className={chartShell}>{featuredChart}</div>
-  const body = !ready ? (loading ? pending : empty) : allCharts
+
+  const body = (
+    <div className={compact ? 'space-y-3' : 'space-y-4'}>
+      {rangePicker}
+      {polarization}
+      {!ready ? (loading ? pending : empty) : allCharts}
+    </div>
+  )
 
   if (collapsible) {
     return (
       <CollapsibleSection title="Gráficos de carga" summaryInteractive summary={summary}>
-        <div>
-          {rangePicker}
-          {body}
-        </div>
+        {body}
       </CollapsibleSection>
     )
   }
 
-  return (
-    <div>
-      {rangePicker}
-      {body}
-    </div>
-  )
+  return body
 }
 
 function DailyLoadChart({
@@ -326,7 +371,7 @@ function DailyLoadChart({
             )
           }}
         />
-        <Bar dataKey="load" fill="#3b82f6" radius={[3, 3, 0, 0]} />
+        <Bar dataKey="load" fill="rgb(var(--accent-500))" radius={[3, 3, 0, 0]} />
       </BarChart>
     </ResponsiveContainer>
   )
@@ -378,42 +423,167 @@ function RollingLoadChart({
   )
 }
 
+type FitnessPoint = {
+  date: string
+  fullDate: string
+  fitness: number | null
+  fatigue: number | null
+  form: number | null
+}
+
+/** One point per ISO week — the last day. CTL/ATL already move slowly. */
+function toWeeklyFitness(data: FitnessPoint[]): FitnessPoint[] {
+  const lastByWeek = new Map<string, FitnessPoint>()
+  for (const point of data) {
+    lastByWeek.set(startOfWeek(point.fullDate), point)
+  }
+  return [...lastByWeek.entries()].map(([week, point]) => ({
+    ...point,
+    date: formatDate(week),
+    fullDate: week,
+  }))
+}
+
+/**
+ * Performance Management Chart: fitness and fatigue as lines, form as bars
+ * coloured by the same bands the "Estado de forma" meter uses, so a taper
+ * reads as the bars climbing out of the red before the target date.
+ */
 function FitnessFatigueChart({
   data,
   height,
   tickEvery,
   compact = false,
+  goalDate,
 }: {
-  data: Array<{ date: string; fitness: number | null; fatigue: number | null; form: number | null }>
+  data: FitnessPoint[]
   height: number
   tickEvery: number
   compact?: boolean
+  goalDate?: string | null
 }) {
+  const goalKey = goalDate ? startOfWeek(goalDate) : null
+  const goalPoint = goalKey
+    ? data.find((point) => point.fullDate === goalDate || point.fullDate === goalKey)
+    : undefined
+
   return (
     <ResponsiveContainer width="100%" height={height}>
-      <LineChart data={data}>
-        <CartesianGrid strokeDasharray="3 3" />
-        <XAxis dataKey="date" tick={{ fontSize: compact ? 8 : 10 }} interval={tickEvery} />
-        <YAxis tick={{ fontSize: compact ? 8 : 10 }} width={compact ? 28 : undefined} />
-        <Tooltip />
-        {!compact && (
-          <Legend
-            formatter={(value) => {
-              const labels: Record<string, string> = {
-                fitness: 'Fitness (CTL)',
-                fatigue: 'Fatiga (ATL)',
-                form: 'Forma (TSB)',
-              }
-              return labels[value] ?? value
+      <ComposedChart data={data}>
+        <CartesianGrid strokeDasharray="3 3" vertical={false} />
+        <XAxis
+          dataKey="date"
+          tick={{ fontSize: compact ? 8 : 10 }}
+          interval={tickEvery}
+          minTickGap={16}
+        />
+        <YAxis yAxisId="load" tick={{ fontSize: compact ? 8 : 10 }} width={compact ? 28 : 40} />
+        <YAxis
+          yAxisId="form"
+          orientation="right"
+          tick={{ fontSize: compact ? 8 : 10 }}
+          width={compact ? 26 : 36}
+        />
+        <Tooltip
+          content={({ active, payload, label }) => {
+            if (!active || !payload?.length) return null
+            const point = payload[0].payload as (typeof data)[number]
+            const assessment = assessForm(point.form)
+            return (
+              <div className="rounded-lg border border-surface bg-surface px-3 py-2 text-xs shadow-lg">
+                <p className="mb-1 font-medium text-muted">{label}</p>
+                <p>Fitness (CTL): {point.fitness ?? '—'}</p>
+                <p>Fatiga (ATL): {point.fatigue ?? '—'}</p>
+                <p className={bandTone(assessment.band).text}>
+                  Forma (TSB): {point.form ?? '—'} · {assessment.bandLabel}
+                </p>
+              </div>
+            )
+          }}
+        />
+        {goalPoint && (
+          <ReferenceLine
+            yAxisId="load"
+            x={goalPoint.date}
+            stroke="rgb(var(--accent-500))"
+            strokeDasharray="4 3"
+            label={{
+              value: 'objetivo',
+              position: 'insideTopRight',
+              fontSize: 10,
+              fill: 'rgb(var(--accent-500))',
             }}
           />
         )}
-        <ReferenceLine y={0} stroke="#94a3b8" strokeDasharray="3 3" />
-        <Line type="monotone" dataKey="fitness" stroke="#3b82f6" strokeWidth={compact ? 1.5 : 2} dot={false} isAnimationActive={false} />
-        <Line type="monotone" dataKey="fatigue" stroke="#ef4444" strokeWidth={compact ? 1.5 : 2} dot={false} isAnimationActive={false} />
-        <Line type="monotone" dataKey="form" stroke="#22c55e" strokeWidth={compact ? 1.5 : 2} dot={false} isAnimationActive={false} />
-      </LineChart>
+        <ReferenceLine yAxisId="form" y={0} stroke="#94a3b8" strokeDasharray="3 3" />
+        <Bar
+          yAxisId="form"
+          dataKey="form"
+          isAnimationActive={false}
+          maxBarSize={data.length > 40 ? 8 : compact ? 6 : 14}
+        >
+          {data.map((point) => (
+            <Cell
+              key={point.fullDate}
+              fill={bandTone(assessForm(point.form).band).hex}
+              fillOpacity={0.55}
+            />
+          ))}
+        </Bar>
+        <Line
+          yAxisId="load"
+          type="monotone"
+          dataKey="fitness"
+          stroke="#3b82f6"
+          strokeWidth={compact ? 1.5 : 2.2}
+          dot={false}
+          isAnimationActive={false}
+        />
+        <Line
+          yAxisId="load"
+          type="monotone"
+          dataKey="fatigue"
+          stroke="#ef4444"
+          strokeWidth={compact ? 1.5 : 1.8}
+          dot={false}
+          isAnimationActive={false}
+        />
+      </ComposedChart>
     </ResponsiveContainer>
+  )
+}
+
+const FORM_BANDS: Array<{ band: BandId; label: string }> = [
+  { band: 'very_low', label: '< −30 riesgo' },
+  { band: 'low', label: '−30 a −10 cargado' },
+  { band: 'normal', label: '−10 a +5 normal' },
+  { band: 'high', label: '+5 a +20 fresco' },
+  { band: 'very_high', label: '> +20 muy fresco' },
+]
+
+function FormBandLegend() {
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-muted">
+      <span className="inline-flex items-center gap-1.5">
+        <span className="h-0.5 w-4 rounded-full" style={{ background: '#3b82f6' }} />
+        Fitness
+      </span>
+      <span className="inline-flex items-center gap-1.5">
+        <span className="h-0.5 w-4 rounded-full" style={{ background: '#ef4444' }} />
+        Fatiga
+      </span>
+      <span className="text-muted/60">|</span>
+      <span>Barras = forma:</span>
+      {FORM_BANDS.map(({ band, label }) => (
+        <span key={band} className="inline-flex items-center gap-1">
+          <span
+            className="h-2 w-2 rounded-[2px]"
+            style={{ background: bandTone(band).hex, opacity: 0.75 }}
+          />
+          {label}
+        </span>
+      ))}
+    </div>
   )
 }
 

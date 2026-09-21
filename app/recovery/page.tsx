@@ -1,10 +1,16 @@
+import { LoadHeatmap } from '@/components/dashboard/LoadHeatmap'
+import { LoadVsRecovery } from '@/components/dashboard/LoadVsRecovery'
 import { RecoveryChart } from '@/components/dashboard/RecoveryChart'
+import { SleepArchitecture } from '@/components/dashboard/SleepArchitecture'
+import { YearVolumeChart } from '@/components/dashboard/YearVolumeChart'
 import { MorningCheckIn } from '@/components/recovery/MorningCheckIn'
 import { Card } from '@/components/ui'
 import { createClient } from '@/lib/supabase/server'
 import { localDateKey } from '@/lib/training/dates'
 import { BODY_FEEL, MOOD, bodyFeelFromSoreness, moodFromMotivation } from '@/lib/training/check-in'
+import { buildAbsorption, type LoadDay } from '@/lib/training/absorption'
 import { buildRecoverySeries, type RecoveryDayPoint } from '@/lib/training/recovery-series'
+import { buildSleepArchitecture } from '@/lib/training/sleep-architecture'
 
 export const dynamic = 'force-dynamic'
 
@@ -65,22 +71,52 @@ export default async function RecoveryPage() {
     .eq('id', user!.id)
     .maybeSingle()
 
-  const today = localDateKey(new Date(), profile?.timezone || 'UTC')
+  const timezone = profile?.timezone || 'UTC'
+  const today = localDateKey(new Date(), timezone)
+  const yearAgo = new Date(Date.now() - 365 * 86400_000).toISOString().slice(0, 10)
 
-  const [{ data: recovery }, { data: sleep }] = await Promise.all([
-    supabase
-      .from('recovery_metrics')
-      .select('date, source, resting_hr, hrv, soreness, motivation')
-      .eq('user_id', user!.id)
-      .order('date', { ascending: false })
-      .limit(28),
-    supabase
-      .from('sleep')
-      .select('date, source, duration_minutes, sleep_score')
-      .eq('user_id', user!.id)
-      .order('date', { ascending: false })
-      .limit(28),
-  ])
+  const [{ data: recovery }, { data: sleep }, { data: loads }, { data: metrics }, { data: rides }] =
+    await Promise.all([
+      supabase
+        .from('recovery_metrics')
+        .select('date, source, resting_hr, hrv, soreness, motivation, body_battery_high')
+        .eq('user_id', user!.id)
+        .gte('date', yearAgo)
+        .order('date', { ascending: false }),
+      supabase
+        .from('sleep')
+        .select('date, source, duration_minutes, sleep_score, deep_sleep_minutes, rem_sleep_minutes, awake_minutes')
+        .eq('user_id', user!.id)
+        .gte('date', yearAgo)
+        .order('date', { ascending: false }),
+      supabase
+        .from('training_load')
+        .select('date, daily_load')
+        .eq('user_id', user!.id)
+        .gte('date', yearAgo)
+        .order('date', { ascending: true }),
+      supabase.from('athlete_metrics').select('ftp').eq('user_id', user!.id).maybeSingle(),
+      supabase
+        .from('activities')
+        .select('start_time, intensity_factor')
+        .eq('user_id', user!.id)
+        .gte('start_time', yearAgo)
+        .order('start_time', { ascending: true }),
+    ])
+
+  const peakIf = new Map<string, number>()
+  for (const ride of rides ?? []) {
+    if (ride.intensity_factor == null) continue
+    const date = localDateKey(ride.start_time, timezone)
+    const current = peakIf.get(date) ?? 0
+    if (ride.intensity_factor > current) peakIf.set(date, Number(ride.intensity_factor))
+  }
+
+  const loadDays: LoadDay[] = (loads ?? []).map((row) => ({
+    date: row.date,
+    daily_load: row.daily_load,
+    intensityFactor: peakIf.get(row.date) ?? null,
+  }))
 
   const { series } = buildRecoverySeries({
     today,
@@ -88,11 +124,27 @@ export default async function RecoveryPage() {
     sleep: sleep ?? [],
     recovery: recovery ?? [],
   })
+  const year = buildRecoverySeries({
+    today,
+    days: 365,
+    sleep: sleep ?? [],
+    recovery: recovery ?? [],
+  })
+  const absorption = buildAbsorption({
+    series: year.series,
+    loads: loadDays,
+    ftp: metrics?.ftp ?? null,
+  })
   const recent = [...series]
     .reverse()
     .filter((row) =>
       [row.sleepHours, row.sleepScore, row.restingHr, row.hrv, row.soreness, row.motivation].some((v) => v != null)
     )
+  const nights = buildSleepArchitecture({
+    today,
+    days: 28,
+    sleep: sleep ?? [],
+  })
   const hasChart = series.some((row) => row.sleepHours != null)
 
   return (
@@ -106,6 +158,31 @@ export default async function RecoveryPage() {
           <MorningCheckIn today={today} />
         </Card>
       </section>
+
+      {absorption ? (
+        <Card>
+          <LoadVsRecovery
+            series={year.series}
+            loads={loadDays}
+            ftp={metrics?.ftp ?? null}
+            defaultDays={90}
+          />
+        </Card>
+      ) : null}
+
+      <Card>
+        <LoadHeatmap />
+      </Card>
+
+      <Card>
+        <YearVolumeChart />
+      </Card>
+
+      {nights.length >= 2 ? (
+        <Card>
+          <SleepArchitecture nights={nights} />
+        </Card>
+      ) : null}
 
       {hasChart ? (
         <Card>

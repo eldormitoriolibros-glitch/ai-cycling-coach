@@ -1,5 +1,5 @@
 import { CollapsibleSection } from './CollapsibleSection'
-import { FormStatusMeters } from './FormStatusMeters'
+import { FormStatusChips, FormStatusMeters } from './FormStatusMeters'
 import { ReadinessMeter } from './ReadinessMeter'
 import { hasDeviceRecovery, type ReadinessResult } from '@/lib/training/readiness'
 import type { FormStatus } from '@/lib/training/form-status'
@@ -42,7 +42,12 @@ export function HowAmISection({
   if (!status) return null
 
   return (
-    <CollapsibleSection title="Estado de forma">
+    <CollapsibleSection
+      title="Estado de forma"
+      summary={
+        <FormStatusChips metrics={[status.form, status.fatigue, status.fitness, status.ramp]} />
+      }
+    >
       <FormStatusMeters
         form={status.form}
         fatigue={status.fatigue}

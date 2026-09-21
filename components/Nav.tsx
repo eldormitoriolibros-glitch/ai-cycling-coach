@@ -42,7 +42,7 @@ export async function Nav() {
   return (
     <header className="sticky top-0 z-40 overflow-visible border-b border-white/10 bg-slate-950/85 text-white backdrop-blur">
       <div className="h-0.5 w-full bg-gradient-to-r from-accent-400 via-accent-600 to-accent-400" />
-      <div className="mx-auto max-w-4xl px-4 sm:px-6">
+      <div className="mx-auto max-w-5xl px-4 sm:px-6">
         <div className="flex h-14 items-center justify-between gap-3">
           <Link href="/" className="flex items-center gap-2.5">
             <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-accent-400 to-accent-600 shadow-lg shadow-accent-500/25">

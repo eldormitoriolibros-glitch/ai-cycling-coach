@@ -1,7 +1,9 @@
 import FitParser from 'fit-file-parser'
 import { estimateTrainingLoad } from '@/lib/training/load'
-import type { ActivitySource } from '@/lib/types/database'
+import { derivePowerMetrics, wattsFromOffsets } from '@/lib/training/power-curve'
+import type { ActivitySource, StreamsStatus } from '@/lib/types/database'
 import { extractSessionLaps, parseFitDate, type FitLap } from './fit-laps'
+import { pedalFromFit, type PedalMetrics } from './pedal-metrics'
 
 export type { FitLap } from './fit-laps'
 export { extractSessionLaps, parseFitDate }
@@ -29,6 +31,7 @@ export type ParsedFitActivity = {
   elevationGain: number | null
   avgPower: number | null
   maxPower: number | null
+  normalizedPower?: number | null
   kilojoules: number | null
   hasPowerMeter: boolean
   avgTemperature: number | null
@@ -41,6 +44,7 @@ export type ParsedFitActivity = {
   garminTrainingLoad: number | null
   records: FitRecordSample[]
   laps: FitLap[]
+  pedalMetrics?: PedalMetrics | null
 }
 
 /** One per-second record from the FIT file, used to build activity_samples. */
@@ -218,6 +222,7 @@ function activityFromRecords(
   }
 
   const avgPower = mean(powers)
+  const derived = derivePowerMetrics(wattsFromOffsets(samples))
 
   return {
     startTime: start.toISOString(),
@@ -234,7 +239,8 @@ function activityFromRecords(
     maxCadence: cadences.length ? Math.max(...cadences) : null,
     elevationGain: ascent > 0 ? Math.round(ascent) : null,
     avgPower,
-    maxPower: powers.length ? Math.max(...powers) : null,
+    maxPower: powers.length ? Math.max(...powers) : derived.maxPower,
+    normalizedPower: derived.normalizedPower,
     kilojoules: null,
     hasPowerMeter: avgPower !== null && avgPower > 0,
     avgTemperature: mean(temps),
@@ -246,6 +252,7 @@ function activityFromRecords(
     sweatLossMl: null,
     garminTrainingLoad: null,
     records: samples,
+    pedalMetrics: pedalFromFit({}, records),
     laps: extractSessionLaps(laps, {
       start_time: start,
       total_elapsed_time: Math.round((end.getTime() - start.getTime()) / 1000),
@@ -289,10 +296,16 @@ export async function parseFitFile(buffer: ArrayBuffer | Buffer): Promise<Parsed
       .filter((value): value is number => value != null && value > 0)
     const avgPower =
       readNumber(session.avg_power) ?? readNumber(session.average_power) ?? mean(recordPowers)
+    const derived = derivePowerMetrics(wattsFromOffsets(sessionRecords))
     const maxPower =
       readNumber(session.max_power) ??
       readNumber(session.maximum_power) ??
+      derived.maxPower ??
       (recordPowers.length ? Math.max(...recordPowers) : null)
+    const normalizedPower =
+      readNumber(session.normalized_power) ??
+      readNumber(session.normalizedPower) ??
+      derived.normalizedPower
     const totalCalories = readNumber(session.total_calories) ?? null
     const kilojoules = totalCalories !== null ? Math.round(totalCalories * 4.184) : null
     const hasPowerMeter = avgPower !== null && avgPower > 0
@@ -320,6 +333,7 @@ export async function parseFitFile(buffer: ArrayBuffer | Buffer): Promise<Parsed
       elevationGain,
       avgPower,
       maxPower,
+      normalizedPower,
       kilojoules,
       hasPowerMeter,
       avgTemperature,
@@ -331,6 +345,7 @@ export async function parseFitFile(buffer: ArrayBuffer | Buffer): Promise<Parsed
       sweatLossMl,
       garminTrainingLoad,
       records: sessionRecords,
+      pedalMetrics: pedalFromFit(session, records),
       laps: extractSessionLaps(laps, session),
     }
   })
@@ -353,9 +368,11 @@ export async function buildFitImportRows(
     const durationSeconds = activity.durationSeconds ?? 0
     if (!durationSeconds) return []
 
+    const derived = derivePowerMetrics(wattsFromOffsets(activity.records))
+    const normalizedPower = activity.normalizedPower ?? derived.normalizedPower
     const { trainingLoad, intensityFactor } = estimateTrainingLoad({
       durationSeconds,
-      normalizedPower: null,
+      normalizedPower,
       averagePower: activity.avgPower,
       averageHr: activity.avgHr,
       ftp,
@@ -388,8 +405,12 @@ export async function buildFitImportRows(
           avg_cadence: activity.avgCadence === null ? null : Math.round(activity.avgCadence),
           max_cadence: activity.maxCadence === null ? null : Math.round(activity.maxCadence),
           avg_power: activity.avgPower,
-          max_power: activity.maxPower,
-          has_power_meter: activity.hasPowerMeter,
+          max_power: activity.maxPower ?? derived.maxPower,
+          normalized_power: normalizedPower,
+          power_curve: derived.curve,
+          streams_status: (derived.curve ? 'ok' : null) as StreamsStatus | null,
+          streams_fetched_at: derived.curve ? new Date().toISOString() : null,
+          has_power_meter: activity.hasPowerMeter || Boolean(normalizedPower),
           kilojoules: activity.kilojoules,
           avg_temperature: activity.avgTemperature,
           max_temperature: activity.maxTemperature,
@@ -399,6 +420,7 @@ export async function buildFitImportRows(
           calories: activity.calories,
           sweat_loss_ml: activity.sweatLossMl,
           garmin_training_load: activity.garminTrainingLoad,
+          pedal_metrics: activity.pedalMetrics ?? null,
           training_load: trainingLoad,
           intensity_factor: intensityFactor,
         },

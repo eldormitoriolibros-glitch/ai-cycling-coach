@@ -9,6 +9,10 @@ import {
   upsertGarminListActivities,
 } from './activity-sync'
 import { capFitDownloads, planListedRideFit } from './incremental-sync'
+import { backfillGarminPowerFromSamples } from './power-from-samples'
+import { backfillRecentPedalMetrics } from './pedal-backfill'
+import { backfillDecoupling } from '@/lib/training/decoupling-store'
+import { backfillZoneSeconds } from '@/lib/training/zone-seconds-store'
 import type { ParsedFitActivity } from './fit'
 import { findMatch, type ExistingActivity } from './activity-match'
 import { listActivityToParsedFit, parseGarminListStart } from './list-import'
@@ -70,7 +74,10 @@ export async function syncGarminData(
   }
 
   const garmin = await getGarminClient(userId)
-  if (!garmin) return { ...result, error: 'No Garmin connection found' }
+  if (!garmin) {
+    result.activitiesEnriched += await backfillGarminPowerFromSamples(userId)
+    return { ...result, error: 'No Garmin connection found' }
+  }
 
   const { client, saveTokens } = garmin
 
@@ -158,6 +165,11 @@ export async function syncGarminData(
     }
 
     result.duplicatesRemoved = await removeDuplicateActivities(userId)
+    result.activitiesEnriched += await backfillGarminPowerFromSamples(userId)
+    await backfillRecentPedalMetrics(userId, { client, listed, limit: 3 })
+    // Runs after the power backfill: Pw:Hr needs NP and avg_power in place.
+    await backfillDecoupling(userId)
+    await backfillZoneSeconds(userId)
   } catch (err) {
     console.error('Garmin activity sync failed:', err)
   }

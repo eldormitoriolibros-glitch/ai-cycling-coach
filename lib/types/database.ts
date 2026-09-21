@@ -4,6 +4,8 @@
  *   npx supabase gen types typescript --linked > lib/types/database.ts
  */
 
+import type { PedalMetrics } from '@/lib/garmin/pedal-metrics'
+
 export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[]
 
 export type ExperienceLevel = 'beginner' | 'intermediate' | 'advanced'
@@ -19,6 +21,9 @@ export type PlanEmphasis = 'recovery' | 'maintenance' | 'build'
 export type TrainingGoalKind = 'maintenance' | 'ftp' | 'race' | 'return'
 export type FtpSource = 'manual' | 'estimated'
 export type StreamsStatus = 'ok' | 'no_power' | 'error'
+/** Whether a ride could be judged for Pw:Hr drift, and if not, why. */
+export type DecouplingStatus = 'ok' | 'no_power' | 'too_short' | 'too_hard'
+export type ZoneSecondsStatus = 'ok' | 'no_signal'
 
 /** Best mean-maximal watts, keyed by duration in seconds. */
 export type PowerCurve = Record<string, number>
@@ -66,6 +71,12 @@ export type ActivityRow = {
   power_curve: PowerCurve | null
   streams_fetched_at: string | null
   streams_status: StreamsStatus | null
+  pedal_metrics: PedalMetrics | null
+  decoupling_percent: number | null
+  decoupling_seconds: number | null
+  decoupling_status: DecouplingStatus | null
+  zone_seconds: Json | null
+  zone_seconds_status: ZoneSecondsStatus | null
   created_at: string
   updated_at: string
 }

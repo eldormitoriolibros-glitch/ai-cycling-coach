@@ -1,4 +1,5 @@
 import type { ParsedFitActivity } from './fit'
+import { pedalFromGarminList } from './pedal-metrics'
 import { garminActivityId } from './incremental-sync'
 
 /** Stored in activities.external_id for Garmin API imports. */
@@ -90,6 +91,12 @@ export function listActivityToParsedFit(activity: any): ParsedFitActivity | null
     activity.avgWatts,
     activity.watts
   )
+  const normalizedPower = firstNum(
+    activity.normPower,
+    activity.normalizedPower,
+    activity.weightedMeanPower,
+    activity.weightedAverageWatts
+  )
 
   return {
     garminActivityId: id,
@@ -107,6 +114,7 @@ export function listActivityToParsedFit(activity: any): ParsedFitActivity | null
     maxCadence: readNum(activity.maxBikingCadenceInRevPerMinute),
     elevationGain: readNum(activity.elevationGain),
     avgPower,
+    normalizedPower,
     maxPower: firstNum(
       activity.maxPower,
       activity.maximumPower,
@@ -114,7 +122,7 @@ export function listActivityToParsedFit(activity: any): ParsedFitActivity | null
       activity.maxWatts
     ),
     kilojoules: null,
-    hasPowerMeter: avgPower != null && avgPower > 0,
+    hasPowerMeter: (avgPower != null && avgPower > 0) || (normalizedPower != null && normalizedPower > 0),
     avgTemperature: readNum(activity.averageTemperature) ?? readNum(activity.minTemperature),
     maxTemperature: readNum(activity.maxTemperature),
     trainingEffectAerobic: readNum(activity.aerobicTrainingEffect),
@@ -125,5 +133,6 @@ export function listActivityToParsedFit(activity: any): ParsedFitActivity | null
     garminTrainingLoad: readNum(activity.activityTrainingLoad),
     records: [],
     laps: [],
+    pedalMetrics: pedalFromGarminList(activity),
   }
 }

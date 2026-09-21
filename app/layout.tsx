@@ -30,7 +30,7 @@ export default function RootLayout({
       </head>
       <body className={`${inter.variable} font-sans antialiased`}>
         <Nav />
-        <main className="mx-auto max-w-4xl px-4 py-5 sm:p-6">{children}</main>
+        <main className="mx-auto max-w-5xl px-4 py-5 sm:px-6 sm:py-6">{children}</main>
       </body>
     </html>
   )

@@ -64,7 +64,7 @@ export default async function ActivitiesPage({
     <div className="space-y-4">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h1 className="text-2xl font-bold">Actividades</h1>
-        <p className="text-sm text-slate-500">
+        <p className="text-sm text-muted">
           {total} en total · página {page} de {lastPage}
         </p>
       </div>
@@ -106,7 +106,7 @@ export default async function ActivitiesPage({
 
       {!error && total === 0 && (
         <Card>
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-muted">
             Todavía no hay actividades.{' '}
             <Link href="/settings" className="font-medium underline">
               Conectá Strava
