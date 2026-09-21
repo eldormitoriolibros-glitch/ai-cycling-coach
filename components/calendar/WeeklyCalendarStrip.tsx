@@ -7,6 +7,7 @@ import { Card } from '@/components/ui'
 import type { CalendarActivity } from '@/lib/calendar/types'
 import { buildWeeksInRange, getMonday, getSunday } from '@/lib/calendar/weeks'
 import { formatCalendarDistance, formatCalendarDuration } from '@/lib/calendar/format'
+import { useLoadScale } from '@/components/dashboard/useLoadScale'
 import { CalendarWeekRow } from './CalendarWeekRow'
 import { WeekdayHeader } from './WeekdayHeader'
 import { ActivityTooltip } from './ActivityTooltip'
@@ -16,6 +17,7 @@ export function WeeklyCalendarStrip() {
   const [loading, setLoading] = useState(true)
   const [hoveredActivity, setHoveredActivity] = useState<CalendarActivity | null>(null)
   const [hoverPos, setHoverPos] = useState({ x: 0, y: 0 })
+  const loadScale = useLoadScale()
 
   const now = new Date()
   const { from, to, weekStart, weekEnd } = useMemo(() => {
@@ -86,6 +88,7 @@ export function WeeklyCalendarStrip() {
             showWeekLabel={false}
             showSummaryBar={false}
             today={now}
+            loadScale={loadScale}
             onHoverActivity={(act, pos) => {
               setHoveredActivity(act)
               if (pos) setHoverPos(pos)

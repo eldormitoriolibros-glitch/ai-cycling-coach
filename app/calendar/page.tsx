@@ -4,6 +4,7 @@ import { Suspense, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { Card } from '@/components/ui'
+import { LoadScaleLegend } from '@/components/dashboard/LoadScaleLegend'
 import { CalendarGrid } from '@/components/calendar/CalendarGrid'
 import { CalendarMultiMonthView } from '@/components/calendar/CalendarMultiMonthView'
 import type { CalendarActivity, CalendarViewMode } from '@/lib/calendar/types'
@@ -137,6 +138,7 @@ function CalendarView() {
         <div>
           <h1 className="text-2xl font-bold capitalize">{title}</h1>
           <p className="text-sm text-muted">Calendario de actividades</p>
+          <LoadScaleLegend className="mt-1.5" />
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <div className="inline-flex rounded-lg border border-surface bg-surface p-1">

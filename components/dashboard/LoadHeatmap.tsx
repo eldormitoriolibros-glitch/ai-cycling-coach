@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { buildLoadScale, loadFill, loadLevel } from '@/lib/training/load-scale'
+import { LoadScaleLegend } from './LoadScaleLegend'
 
 type LoadRow = { date: string; dailyLoad: number | null }
 
@@ -27,27 +29,6 @@ function mondayOf(date: Date): Date {
   const day = (date.getDay() + 6) % 7
   return addDays(date, -day)
 }
-
-/**
- * Buckets the athlete's own load distribution instead of a fixed scale: a
- * dark cell means hard *for them*, which is the only comparison that matters.
- */
-function buildScale(loads: number[]): number[] {
-  const sorted = loads.filter((v) => v > 0).sort((a, b) => a - b)
-  if (!sorted.length) return []
-  const at = (q: number) => sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * q))]
-  return [at(0.2), at(0.45), at(0.7), at(0.9)]
-}
-
-function levelFor(load: number, scale: number[]): number {
-  if (load <= 0 || !scale.length) return 0
-  for (let i = 0; i < scale.length; i++) {
-    if (load <= scale[i]) return i + 1
-  }
-  return scale.length + 1
-}
-
-const LEVEL_OPACITY = [0, 0.22, 0.42, 0.62, 0.82, 1]
 
 export function LoadHeatmap({ weeks = 52 }: { weeks?: number }) {
   const router = useRouter()
@@ -106,7 +87,7 @@ export function LoadHeatmap({ weeks = 52 }: { weeks?: number }) {
 
     return {
       columns,
-      scale: buildScale(loads),
+      scale: buildLoadScale(loads),
       total: Math.round(loads.reduce((a, b) => a + b, 0)),
       trainedDays: trained.length,
       bestStreak,
@@ -190,7 +171,7 @@ export function LoadHeatmap({ weeks = 52 }: { weeks?: number }) {
             >
               {grid.columns.flatMap((column) =>
                 column.map((day) => {
-                  const level = levelFor(day.load, grid.scale)
+                  const level = loadLevel(day.load, grid.scale)
                   return (
                     <div
                       key={day.date}
@@ -207,10 +188,7 @@ export function LoadHeatmap({ weeks = 52 }: { weeks?: number }) {
                       style={{
                         width: CELL,
                         height: CELL,
-                        backgroundColor:
-                          level === 0
-                            ? 'rgb(var(--border-rgb))'
-                            : `rgb(var(--accent-500) / ${LEVEL_OPACITY[level] ?? 1})`,
+                        backgroundColor: loadFill(level),
                       }}
                     />
                   )
@@ -221,22 +199,7 @@ export function LoadHeatmap({ weeks = 52 }: { weeks?: number }) {
         </div>
       </div>
 
-      <div className="flex items-center justify-end gap-1.5 text-[10px] text-muted">
-        <span>Suave</span>
-        {LEVEL_OPACITY.map((opacity, level) => (
-          <span
-            key={level}
-            className="rounded-[2px]"
-            style={{
-              width: 10,
-              height: 10,
-              backgroundColor:
-                level === 0 ? 'rgb(var(--border-rgb))' : `rgb(var(--accent-500) / ${opacity})`,
-            }}
-          />
-        ))}
-        <span>Duro</span>
-      </div>
+      <LoadScaleLegend className="justify-end" />
     </div>
   )
 }

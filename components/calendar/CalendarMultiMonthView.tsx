@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react'
 import type { CalendarActivity } from '@/lib/calendar/types'
 import { getMonthsInRange } from '@/lib/calendar/month-grid'
+import { useLoadScale } from '@/components/dashboard/useLoadScale'
 import { CalendarMonthMini } from './CalendarMonthMini'
 import { ActivityTooltip } from './ActivityTooltip'
 
@@ -21,6 +22,7 @@ export function CalendarMultiMonthView({
 }: CalendarMultiMonthViewProps) {
   const [hoveredActivity, setHoveredActivity] = useState<CalendarActivity | null>(null)
   const [hoverPos, setHoverPos] = useState({ x: 0, y: 0 })
+  const loadScale = useLoadScale()
 
   const months = useMemo(() => getMonthsInRange(rangeStart, rangeEnd), [rangeStart, rangeEnd])
 
@@ -48,6 +50,7 @@ export function CalendarMultiMonthView({
               year={year}
               month={month}
               activities={monthActs}
+              loadScale={loadScale}
               onHoverActivity={(act, pos) => {
                 setHoveredActivity(act)
                 if (pos) setHoverPos(pos)

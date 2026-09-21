@@ -1,9 +1,11 @@
-export function getActivityColor(sportType: string | null): string {
-  const s = (sportType ?? '').toLowerCase()
-  if (s.includes('run')) return 'bg-green-500'
-  if (s.includes('swim')) return 'bg-blue-400'
-  if (s.includes('weight') || s.includes('strength')) return 'bg-yellow-500'
-  return 'bg-accent-500'
+import { loadFill, loadLevel, loadTextClass } from '@/lib/training/load-scale'
+
+export function rideTone(load: number, scale: number[]): {
+  fill: string
+  text: string
+} {
+  const level = loadLevel(load, scale)
+  return { fill: loadFill(level), text: loadTextClass(level) }
 }
 
 export function getBubbleSize(distanceKm: number, variant: 'full' | 'compact' | 'mini' = 'full'): string {

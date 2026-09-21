@@ -12,8 +12,8 @@ import {
 import {
   CALENDAR_WEEK_GRID,
   CALENDAR_WEEK_GRID_COMPACT,
-  getActivityColor,
   getBubbleSize,
+  rideTone,
 } from './calendar-utils'
 
 type CalendarWeekRowProps = {
@@ -24,6 +24,7 @@ type CalendarWeekRowProps = {
   showDayNumbers?: boolean
   maxWeekDistance?: number
   today?: Date
+  loadScale?: number[]
   onHoverActivity?: (activity: CalendarActivity | null, pos?: { x: number; y: number }) => void
 }
 
@@ -35,6 +36,7 @@ export function CalendarWeekRow({
   showDayNumbers = false,
   maxWeekDistance = 0,
   today = new Date(),
+  loadScale = [],
   onHoverActivity,
 }: CalendarWeekRowProps) {
   const gridCols = compact ? CALENDAR_WEEK_GRID_COMPACT : CALENDAR_WEEK_GRID
@@ -90,6 +92,7 @@ export function CalendarWeekRow({
               isToday={isToday}
               compact={compact}
               showDayNumbers={showDayNumbers}
+              loadScale={loadScale}
               onHoverActivity={onHoverActivity}
             />
           )
@@ -125,6 +128,7 @@ function DayCell({
   isToday,
   compact,
   showDayNumbers,
+  loadScale,
   onHoverActivity,
 }: {
   dayDate: Date
@@ -132,10 +136,12 @@ function DayCell({
   isToday: boolean
   compact: boolean
   showDayNumbers: boolean
+  loadScale: number[]
   onHoverActivity?: CalendarWeekRowProps['onHoverActivity']
 }) {
   const visible = activities.slice(0, 2)
   const extra = activities.length - visible.length
+  const dayLoad = activities.reduce((sum, act) => sum + (act.training_load ?? 0), 0)
 
   return (
     <div
@@ -162,7 +168,14 @@ function DayCell({
       )}
 
       {visible.map((act) => (
-        <ActivityMark key={act.id} act={act} compact={compact} onHoverActivity={onHoverActivity} />
+        <ActivityMark
+          key={act.id}
+          act={act}
+          compact={compact}
+          load={dayLoad}
+          scale={loadScale}
+          onHoverActivity={onHoverActivity}
+        />
       ))}
 
       {extra > 0 && <span className="text-[9px] font-medium text-muted">+{extra}</span>}
@@ -179,14 +192,18 @@ function DayCell({
 function ActivityMark({
   act,
   compact,
+  load,
+  scale,
   onHoverActivity,
 }: {
   act: CalendarActivity
   compact: boolean
+  load: number
+  scale: number[]
   onHoverActivity?: CalendarWeekRowProps['onHoverActivity']
 }) {
   const km = (act.distance_meters ?? 0) / 1000
-  const color = getActivityColor(act.sport_type)
+  const tone = rideTone(load, scale)
   const chipLabel = km >= 1 ? String(Math.round(km)) : '●'
 
   return (
@@ -198,15 +215,17 @@ function ActivityMark({
       onMouseLeave={() => onHoverActivity?.(null)}
     >
       <span
-        className={`${color} w-full rounded-md px-0.5 py-1 text-center text-[10px] font-semibold leading-none tabular-nums text-white ${
+        className={`w-full rounded-md px-0.5 py-1 text-center text-[10px] font-semibold leading-none tabular-nums ${tone.text} ${
           compact ? '' : 'md:hidden'
         }`}
+        style={{ backgroundColor: tone.fill }}
       >
         {chipLabel}
       </span>
       {!compact && (
         <span
-          className={`hidden ${color} ${getBubbleSize(km, 'full')} flex-col items-center justify-center rounded-full font-semibold leading-tight text-white transition-all hover:ring-2 hover:ring-accent-400 hover:ring-offset-2 md:flex`}
+          className={`hidden ${getBubbleSize(km, 'full')} flex-col items-center justify-center rounded-full font-semibold leading-tight transition-all hover:ring-2 hover:ring-accent-400 hover:ring-offset-2 md:flex ${tone.text}`}
+          style={{ backgroundColor: tone.fill }}
         >
           {km >= 1 ? (
             <>

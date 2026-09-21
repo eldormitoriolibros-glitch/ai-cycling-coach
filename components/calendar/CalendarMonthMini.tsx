@@ -11,13 +11,14 @@ import {
 } from '@/lib/calendar/month-grid'
 import { isSameDay } from '@/lib/calendar/weeks'
 import { formatCalendarDistance, formatCalendarDuration, formatKmBubble } from '@/lib/calendar/format'
-import { getActivityColor, getBubbleSize } from './calendar-utils'
+import { getBubbleSize, rideTone } from './calendar-utils'
 
 type CalendarMonthMiniProps = {
   year: number
   month: number
   activities: CalendarActivity[]
   today?: Date
+  loadScale?: number[]
   onHoverActivity?: (activity: CalendarActivity | null, pos?: { x: number; y: number }) => void
 }
 
@@ -26,6 +27,7 @@ export function CalendarMonthMini({
   month,
   activities,
   today = new Date(),
+  loadScale = [],
   onHoverActivity,
 }: CalendarMonthMiniProps) {
   const byDay = groupActivitiesByDay(activities)
@@ -56,6 +58,7 @@ export function CalendarMonthMini({
               key={`${wi}-${di}`}
               cell={cell}
               today={today}
+              loadScale={loadScale}
               onHoverActivity={onHoverActivity}
             />
           ))
@@ -68,10 +71,12 @@ export function CalendarMonthMini({
 function MonthDay({
   cell,
   today,
+  loadScale,
   onHoverActivity,
 }: {
   cell: MonthDayCell
   today: Date
+  loadScale: number[]
   onHoverActivity?: CalendarMonthMiniProps['onHoverActivity']
 }) {
   if (!cell.inMonth) {
@@ -81,6 +86,7 @@ function MonthDay({
   const isToday = isSameDay(cell.date, today)
   const dayActs = cell.activities
   const hasActivity = dayActs.length > 0
+  const dayLoad = dayActs.reduce((sum, row) => sum + (row.training_load ?? 0), 0)
 
   return (
     <div className="flex min-h-[52px] flex-col items-center gap-0.5 py-0.5">
@@ -106,6 +112,8 @@ function MonthDay({
         <ActivityBubble
           key={act.id}
           act={act}
+          load={dayLoad}
+          scale={loadScale}
           onHoverActivity={onHoverActivity}
         />
       ))}
@@ -115,17 +123,23 @@ function MonthDay({
 
 function ActivityBubble({
   act,
+  load,
+  scale,
   onHoverActivity,
 }: {
   act: CalendarActivity
+  load: number
+  scale: number[]
   onHoverActivity?: CalendarMonthMiniProps['onHoverActivity']
 }) {
   const km = (act.distance_meters ?? 0) / 1000
+  const tone = rideTone(load, scale)
 
   return (
     <Link href={`/activities/${act.id}`} className="flex flex-col items-center">
       <div
-        className={`${getActivityColor(act.sport_type)} ${getBubbleSize(km, 'mini')} rounded-full flex flex-col items-center justify-center text-white font-semibold cursor-pointer hover:ring-2 hover:ring-offset-1 hover:ring-accent-400 transition-all leading-none`}
+        className={`${getBubbleSize(km, 'mini')} ${tone.text} flex cursor-pointer flex-col items-center justify-center rounded-full font-semibold leading-none transition-all hover:ring-2 hover:ring-accent-400 hover:ring-offset-1`}
+        style={{ backgroundColor: tone.fill }}
         onMouseEnter={(e) => onHoverActivity?.(act, { x: e.clientX, y: e.clientY })}
         onMouseLeave={() => onHoverActivity?.(null)}
         title={act.title ?? formatCalendarDistance(act.distance_meters)}

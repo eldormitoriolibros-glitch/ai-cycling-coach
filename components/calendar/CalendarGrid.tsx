@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import type { CalendarActivity, WeekData } from '@/lib/calendar/types'
+import { useLoadScale } from '@/components/dashboard/useLoadScale'
 import { CalendarWeekRow } from './CalendarWeekRow'
 import { WeekdayHeader } from './WeekdayHeader'
 import { ActivityTooltip } from './ActivityTooltip'
@@ -21,6 +22,7 @@ export function CalendarGrid({
 }: CalendarGridProps) {
   const [hoveredActivity, setHoveredActivity] = useState<CalendarActivity | null>(null)
   const [hoverPos, setHoverPos] = useState({ x: 0, y: 0 })
+  const loadScale = useLoadScale()
   const today = new Date()
   const todayInView = weeks.some((w) => today >= w.startDate && today <= w.endDate)
   const maxWeekDistance = weeks.reduce((max, w) => Math.max(max, w.totalDistance), 0)
@@ -50,6 +52,7 @@ export function CalendarGrid({
                 showDayNumbers={showDayNumbers}
                 maxWeekDistance={maxWeekDistance}
                 today={today}
+                loadScale={loadScale}
                 onHoverActivity={(act, pos) => {
                   setHoveredActivity(act)
                   if (pos) setHoverPos(pos)
