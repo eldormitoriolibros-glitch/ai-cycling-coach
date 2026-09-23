@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import type { WorkoutStatus } from '@/lib/types/database'
-import { REVIEW_AFTER_MARK_NOTE, requestSessionReview, updateWorkoutStatus } from './mark-workout'
+import { REVIEW_STILL_RUNNING_NOTE, updateWorkoutStatus, waitForSessionReview } from './mark-workout'
 
 export function useWorkoutStatus() {
   const router = useRouter()
@@ -16,31 +16,30 @@ export function useWorkoutStatus() {
     setBusyId(id)
     try {
       await updateWorkoutStatus(id, status)
-      router.refresh()
-
-      if (status !== 'completed') {
-        setSuccess(status === 'skipped' ? 'Sesión saltada.' : 'Sesión actualizada.')
-        return
-      }
-
-      setSuccess('Sesión marcada. El entrenador está analizándola…')
-      try {
-        const result = await requestSessionReview(id)
-        setSuccess(
-          result.sent
-            ? 'Listo: el entrenador te mandó la devolución de la sesión.'
-            : 'Sesión marcada como hecha.'
-        )
-      } catch {
-        setSuccess(REVIEW_AFTER_MARK_NOTE)
-      }
-      router.refresh()
     } catch (err) {
       setSuccess(null)
       setError(err instanceof Error ? err.message : 'No se pudo actualizar la sesión.')
+      return
     } finally {
       setBusyId(null)
     }
+
+    router.refresh()
+    if (status !== 'completed') {
+      setSuccess(status === 'skipped' ? 'Sesión saltada.' : 'Sesión actualizada.')
+      return
+    }
+
+    // The ride pull and the review already run on the server. Waiting here is
+    // only so the athlete sees it land; closing the page does not cancel it.
+    setSuccess('Sesión marcada. El entrenador está analizándola…')
+    const reviewed = await waitForSessionReview(id)
+    setSuccess(
+      reviewed
+        ? 'Listo: el entrenador te mandó la devolución de la sesión.'
+        : REVIEW_STILL_RUNNING_NOTE
+    )
+    router.refresh()
   }
 
   return { setStatus, busyId, error, success }

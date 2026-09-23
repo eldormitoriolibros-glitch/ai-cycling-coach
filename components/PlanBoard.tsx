@@ -10,8 +10,8 @@ import type { WorkoutStatus } from '@/lib/types/database'
 import { looksCombined, looksStrength, splitCombinedSession } from '@/lib/training/split-sessions'
 import { addDays, eachDay, endOfWeek, formatWeekRange, startOfWeek } from '@/lib/training/dates'
 import { SessionCard } from '@/components/plan/SessionCard'
-import { REVIEW_AFTER_MARK_NOTE, requestSessionReview, updateWorkoutStatus } from '@/components/plan/mark-workout'
 import { WorkoutStatusActions } from '@/components/plan/WorkoutStatusActions'
+import { useWorkoutStatus } from '@/components/plan/useWorkoutStatus'
 
 export type ScheduledWorkout = {
   id: string
@@ -73,10 +73,8 @@ export function PlanBoard({
   const router = useRouter()
   const supabase = createClient()
 
-  const [error, setError] = useState<string | null>(null)
-  const [success, setSuccess] = useState<string | null>(null)
+  const { setStatus, busyId, error, success } = useWorkoutStatus()
   const [view, setView] = useState<'week' | 'cycle'>('week')
-  const [reviewing, setReviewing] = useState<string | null>(null)
   const [weekStart, setWeekStart] = useState(() => startOfWeek(focusDate ?? today))
   const [focusDay, setFocusDay] = useState<string | null>(null)
   const [focusTick, setFocusTick] = useState(0)
@@ -175,36 +173,6 @@ export function PlanBoard({
     })
   }, [workouts, router, supabase])
 
-  const setStatus = async (id: string, status: WorkoutStatus) => {
-    setError(null)
-    try {
-      await updateWorkoutStatus(id, status)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo actualizar la sesión.')
-      return
-    }
-    router.refresh()
-
-    if (status !== 'completed') return
-
-    // The review needs the ride, so the route syncs Garmin before analysing.
-    setReviewing(id)
-    setSuccess('Sesión marcada. El entrenador está analizándola…')
-    try {
-      const result = await requestSessionReview(id)
-      setSuccess(
-        result.sent
-          ? 'Listo: el entrenador te mandó la devolución de la sesión.'
-          : 'Sesión marcada como hecha.'
-      )
-    } catch {
-      setSuccess(REVIEW_AFTER_MARK_NOTE)
-    } finally {
-      setReviewing(null)
-      router.refresh()
-    }
-  }
-
   const stats = weekStats(view === 'week' ? weekSessions : cycleSessions)
 
   return (
@@ -284,7 +252,7 @@ export function PlanBoard({
             today={today}
             sessions={weekSessions}
             onStatus={setStatus}
-            reviewing={reviewing}
+            busyId={busyId}
             focusSessionId={focusDay ? undefined : focusSessionId}
             focusDay={focusDay}
           />
@@ -312,7 +280,7 @@ export function PlanBoard({
                     sessions={sessions}
                     compact
                     onStatus={setStatus}
-                    reviewing={reviewing}
+                    busyId={busyId}
                     focusSessionId={focusDay ? undefined : focusSessionId}
                     focusDay={focusDay}
                   />
@@ -332,7 +300,7 @@ function WeekAgenda({
   sessions,
   compact,
   onStatus,
-  reviewing,
+  busyId,
   focusSessionId,
   focusDay,
 }: {
@@ -341,7 +309,7 @@ function WeekAgenda({
   sessions: ScheduledWorkout[]
   compact?: boolean
   onStatus: (id: string, status: WorkoutStatus) => void
-  reviewing: string | null
+  busyId: string | null
   focusSessionId?: string
   focusDay?: string | null
 }) {
@@ -386,7 +354,7 @@ function WeekAgenda({
                   highlighted={w.id === focusSessionId || date === focusDay}
                   actions={
                     w.status === 'scheduled' && date >= today ? (
-                      <WorkoutStatusActions workoutId={w.id} busyId={reviewing} onStatus={onStatus} />
+                      <WorkoutStatusActions workoutId={w.id} busyId={busyId} onStatus={onStatus} />
                     ) : undefined
                   }
                 />

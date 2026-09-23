@@ -15,6 +15,7 @@
     "@supabase/ssr": "^0.12.5",
     "@supabase/supabase-js": "^2.112.4",
     "@types/leaflet": "^1.9.22",
+    "@vercel/functions": "3.9.8",
     "clsx": "^2.1.1",
     "fflate": "^0.8.3",
     "fit-file-parser": "^5.0.2",
